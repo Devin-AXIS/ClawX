@@ -20,7 +20,7 @@ import { getApiKey, getDefaultProvider, getProvider } from '../utils/secure-stor
 import { getProviderEnvVar, getKeyableProviderTypes } from '../utils/provider-registry';
 import { getOpenClawDir, getOpenClawEntryPath, isOpenClawPresent } from '../utils/paths';
 import { getUvMirrorEnv } from '../utils/uv-env';
-import { listConfiguredChannels } from '../utils/channel-config';
+import { cleanupDanglingWeChatPluginState, listConfiguredChannels } from '../utils/channel-config';
 import { syncGatewayTokenToConfig, syncBrowserConfigToOpenClaw, syncSessionIdleMinutesToOpenClaw, sanitizeOpenClawConfig } from '../utils/openclaw-auth';
 import { buildProxyEnv, resolveProxySettings } from '../utils/proxy';
 import { syncProxyConfigToOpenClaw } from '../utils/openclaw-proxy';
@@ -48,6 +48,7 @@ const CHANNEL_PLUGIN_MAP: Record<string, { dirName: string; npmName: string }> =
   wecom: { dirName: 'wecom', npmName: '@wecom/wecom-openclaw-plugin' },
   feishu: { dirName: 'feishu-openclaw-plugin', npmName: '@larksuite/openclaw-lark' },
   qqbot: { dirName: 'qqbot', npmName: '@sliverp/qqbot' },
+  'openclaw-weixin': { dirName: 'openclaw-weixin', npmName: '@tencent-weixin/openclaw-weixin' },
 };
 
 function readPluginVersion(pkgJsonPath: string): string | null {
@@ -142,6 +143,12 @@ export async function syncGatewayConfigBeforeLaunch(
     await sanitizeOpenClawConfig();
   } catch (err) {
     logger.warn('Failed to sanitize openclaw.json:', err);
+  }
+
+  try {
+    await cleanupDanglingWeChatPluginState();
+  } catch (err) {
+    logger.warn('Failed to clean dangling WeChat plugin state before launch:', err);
   }
 
   // Auto-upgrade installed plugins before Gateway starts so that

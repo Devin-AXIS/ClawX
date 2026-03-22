@@ -332,7 +332,7 @@ async function initialize(): Promise<void> {
     logger.warn('Failed to install preinstalled skills:', error);
   });
 
-  // Pre-deploy/upgrade bundled OpenClaw plugins (dingtalk, wecom, qqbot, feishu)
+  // Pre-deploy/upgrade bundled OpenClaw plugins (dingtalk, wecom, qqbot, feishu, wechat)
   // to ~/.openclaw/extensions/ so they are always up-to-date after an app update.
   void ensureAllBundledPluginsInstalled().catch((error) => {
     logger.warn('Failed to install/upgrade bundled plugins:', error);
