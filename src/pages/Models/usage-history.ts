@@ -26,6 +26,30 @@ export type UsageGroup = {
   sortKey: number | string;
 };
 
+export function resolveStableUsageHistory(
+  previousStableEntries: UsageHistoryEntry[],
+  nextEntries: UsageHistoryEntry[],
+  options: { preservePreviousOnEmpty?: boolean } = {},
+): UsageHistoryEntry[] {
+  if (nextEntries.length > 0) {
+    return nextEntries;
+  }
+
+  return options.preservePreviousOnEmpty ? previousStableEntries : [];
+}
+
+export function resolveVisibleUsageHistory(
+  currentEntries: UsageHistoryEntry[],
+  stableEntries: UsageHistoryEntry[],
+  options: { preferStableOnEmpty?: boolean } = {},
+): UsageHistoryEntry[] {
+  if (options.preferStableOnEmpty && currentEntries.length === 0) {
+    return stableEntries;
+  }
+
+  return currentEntries;
+}
+
 export function formatUsageDay(timestamp: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp;

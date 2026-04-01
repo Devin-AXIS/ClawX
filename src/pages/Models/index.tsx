@@ -15,6 +15,8 @@ import { FeedbackState } from '@/components/common/FeedbackState';
 import {
   filterUsageHistoryByWindow,
   groupUsageHistory,
+  resolveStableUsageHistory,
+  resolveVisibleUsageHistory,
   type UsageGroupBy,
   type UsageHistoryEntry,
   type UsageWindow,
@@ -22,6 +24,7 @@ import {
 const DEFAULT_USAGE_FETCH_MAX_ATTEMPTS = 2;
 const WINDOWS_USAGE_FETCH_MAX_ATTEMPTS = 3;
 const USAGE_FETCH_RETRY_DELAY_MS = 1500;
+const USAGE_AUTO_REFRESH_INTERVAL_MS = 15_000;
 
 export function Models() {
   const { t } = useTranslation(['dashboard', 'settings']);
@@ -36,6 +39,7 @@ export function Models() {
   const [usageWindow, setUsageWindow] = useState<UsageWindow>('7d');
   const [usagePage, setUsagePage] = useState(1);
   const [selectedUsageEntry, setSelectedUsageEntry] = useState<UsageHistoryEntry | null>(null);
+  const [usageRefreshNonce, setUsageRefreshNonce] = useState(0);
   const HIDDEN_USAGE_SOURCES = new Set([
     'gateway-injected',
     'delivery-mirror',
@@ -71,34 +75,78 @@ export function Models() {
   type FetchState = {
     status: 'idle' | 'loading' | 'done';
     data: UsageHistoryEntry[];
+    stableData: UsageHistoryEntry[];
   };
   type FetchAction =
     | { type: 'start' }
     | { type: 'done'; data: UsageHistoryEntry[] }
+    | { type: 'failed' }
     | { type: 'reset' };
 
   const [fetchState, dispatchFetch] = useReducer(
     (state: FetchState, action: FetchAction): FetchState => {
       switch (action.type) {
         case 'start':
-          return { status: 'loading', data: state.data };
+          return { ...state, status: 'loading' };
         case 'done':
-          return { status: 'done', data: action.data };
+          return {
+            status: 'done',
+            data: action.data,
+            stableData: resolveStableUsageHistory(state.stableData, action.data),
+          };
+        case 'failed':
+          return { ...state, status: 'done' };
         case 'reset':
-          return { status: 'idle', data: [] };
+          return { status: 'idle', data: [], stableData: [] };
         default:
           return state;
       }
     },
-    { status: 'idle' as const, data: [] as UsageHistoryEntry[] },
+    { status: 'idle' as const, data: [] as UsageHistoryEntry[], stableData: [] as UsageHistoryEntry[] },
   );
 
   const usageFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usageFetchGenerationRef = useRef(0);
+  const usageFetchStatusRef = useRef<FetchState['status']>('idle');
+
+  useEffect(() => {
+    usageFetchStatusRef.current = fetchState.status;
+  }, [fetchState.status]);
 
   useEffect(() => {
     trackUiEvent('models.page_viewed');
   }, []);
+
+  useEffect(() => {
+    if (!isGatewayRunning) {
+      return;
+    }
+
+    const requestRefresh = () => {
+      if (usageFetchStatusRef.current === 'loading') return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      setUsageRefreshNonce((value) => value + 1);
+    };
+
+    const intervalId = window.setInterval(requestRefresh, USAGE_AUTO_REFRESH_INTERVAL_MS);
+    const handleFocus = () => {
+      requestRefresh();
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        requestRefresh();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isGatewayRunning]);
 
   useEffect(() => {
     if (usageFetchTimerRef.current) {
@@ -128,7 +176,7 @@ export function Models() {
         generation,
         restartMarker,
       });
-      dispatchFetch({ type: 'done', data: [] });
+      dispatchFetch({ type: 'failed' });
     }, 30_000);
 
     const fetchUsageHistoryWithRetry = async (attempt: number) => {
@@ -191,7 +239,7 @@ export function Models() {
           }, USAGE_FETCH_RETRY_DELAY_MS);
           return;
         }
-        dispatchFetch({ type: 'done', data: [] });
+        dispatchFetch({ type: 'failed' });
         trackUiEvent('models.token_usage_fetch_exhausted', {
           generation,
           attempt,
@@ -210,18 +258,25 @@ export function Models() {
         usageFetchTimerRef.current = null;
       }
     };
-  }, [isGatewayRunning, gatewayStatus.connectedAt, gatewayStatus.pid, usageFetchMaxAttempts]);
+  }, [isGatewayRunning, gatewayStatus.connectedAt, gatewayStatus.pid, usageFetchMaxAttempts, usageRefreshNonce]);
 
-  const visibleUsageHistory = isGatewayRunning
+  const usageHistory = isGatewayRunning
     ? fetchState.data.filter((entry) => !shouldHideUsageEntry(entry))
     : [];
+  const stableUsageHistory = isGatewayRunning
+    ? fetchState.stableData.filter((entry) => !shouldHideUsageEntry(entry))
+    : [];
+  const visibleUsageHistory = resolveVisibleUsageHistory(usageHistory, stableUsageHistory, {
+    preferStableOnEmpty: isGatewayRunning && fetchState.status === 'loading',
+  });
   const filteredUsageHistory = filterUsageHistoryByWindow(visibleUsageHistory, usageWindow);
   const usageGroups = groupUsageHistory(filteredUsageHistory, usageGroupBy);
   const usagePageSize = 5;
   const usageTotalPages = Math.max(1, Math.ceil(filteredUsageHistory.length / usagePageSize));
   const safeUsagePage = Math.min(usagePage, usageTotalPages);
   const pagedUsageHistory = filteredUsageHistory.slice((safeUsagePage - 1) * usagePageSize, safeUsagePage * usagePageSize);
-  const usageLoading = isGatewayRunning && fetchState.status === 'loading';
+  const usageLoading = isGatewayRunning && fetchState.status === 'loading' && visibleUsageHistory.length === 0;
+  const usageRefreshing = isGatewayRunning && fetchState.status === 'loading' && visibleUsageHistory.length > 0;
 
   return (
     <div data-testid="models-page" className="flex flex-col -m-6 dark:bg-background h-[calc(100vh-2.5rem)] overflow-hidden">
@@ -328,7 +383,9 @@ export function Models() {
                       </div>
                     </div>
                     <p className="text-[13px] font-medium text-muted-foreground">
-                      {t('dashboard:recentTokenHistory.showingLast', { count: filteredUsageHistory.length })}
+                      {usageRefreshing
+                        ? t('dashboard:recentTokenHistory.loading')
+                        : t('dashboard:recentTokenHistory.showingLast', { count: filteredUsageHistory.length })}
                     </p>
                   </div>
 

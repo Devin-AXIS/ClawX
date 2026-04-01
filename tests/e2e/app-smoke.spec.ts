@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures/electron';
+import { closeElectronApp, expect, test } from './fixtures/electron';
 
 test.describe('ClawX Electron smoke flows', () => {
   test('shows the setup wizard on a fresh profile', async ({ page }) => {
@@ -25,7 +25,7 @@ test.describe('ClawX Electron smoke flows', () => {
     await firstWindow.getByTestId('setup-skip-button').click();
     await expect(firstWindow.getByTestId('main-layout')).toBeVisible();
 
-    await electronApp.close();
+    await closeElectronApp(electronApp);
 
     const relaunchedApp = await launchElectronApp();
     try {
@@ -35,7 +35,7 @@ test.describe('ClawX Electron smoke flows', () => {
       await expect(relaunchedWindow.getByTestId('main-layout')).toBeVisible();
       await expect(relaunchedWindow.getByTestId('setup-page')).toHaveCount(0);
     } finally {
-      await relaunchedApp.close();
+      await closeElectronApp(relaunchedApp);
     }
   });
 });

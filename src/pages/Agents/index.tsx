@@ -106,6 +106,7 @@ export function Agents() {
     deleteAgent,
   } = useAgentsStore();
   const [channelGroups, setChannelGroups] = useState<ChannelGroupItem[]>([]);
+  const [hasCompletedInitialLoad, setHasCompletedInitialLoad] = useState(() => agents.length > 0);
 
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
@@ -116,13 +117,21 @@ export function Agents() {
       const response = await hostApiFetch<{ success: boolean; channels?: ChannelGroupItem[] }>('/api/channels/accounts');
       setChannelGroups(response.channels || []);
     } catch {
-      setChannelGroups([]);
+      // Keep the last rendered snapshot when channel account refresh fails.
     }
   }, []);
 
   useEffect(() => {
+    let mounted = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void Promise.all([fetchAgents(), fetchChannelAccounts(), refreshProviderSnapshot()]);
+    void Promise.all([fetchAgents(), fetchChannelAccounts(), refreshProviderSnapshot()]).finally(() => {
+      if (mounted) {
+        setHasCompletedInitialLoad(true);
+      }
+    });
+    return () => {
+      mounted = false;
+    };
   }, [fetchAgents, fetchChannelAccounts, refreshProviderSnapshot]);
 
   useEffect(() => {
@@ -150,11 +159,15 @@ export function Agents() {
     () => agents.find((agent) => agent.id === activeAgentId) ?? null,
     [activeAgentId, agents],
   );
+
+  const visibleAgents = agents;
+  const visibleChannelGroups = channelGroups;
+  const isUsingStableValue = loading && hasCompletedInitialLoad;
   const handleRefresh = () => {
     void Promise.all([fetchAgents(), fetchChannelAccounts()]);
   };
 
-  if (loading) {
+  if (loading && !hasCompletedInitialLoad) {
     return (
       <div className="flex flex-col -m-6 dark:bg-background min-h-[calc(100vh-2.5rem)] items-center justify-center">
         <LoadingSpinner size="lg" />
@@ -163,7 +176,7 @@ export function Agents() {
   }
 
   return (
-    <div className="flex flex-col -m-6 dark:bg-background h-[calc(100vh-2.5rem)] overflow-hidden">
+    <div data-testid="agents-page" className="flex flex-col -m-6 dark:bg-background h-[calc(100vh-2.5rem)] overflow-hidden">
       <div className="w-full max-w-5xl mx-auto flex flex-col h-full p-10 pt-16">
         <div className="flex flex-col md:flex-row md:items-start justify-between mb-12 shrink-0 gap-4">
           <div>
@@ -181,7 +194,7 @@ export function Agents() {
               onClick={handleRefresh}
               className="h-9 text-[13px] font-medium rounded-full px-4 border-black/10 dark:border-white/10 bg-transparent hover:bg-black/5 dark:hover:bg-white/5 shadow-none text-foreground/80 hover:text-foreground transition-colors"
             >
-              <RefreshCw className="h-3.5 w-3.5 mr-2" />
+              <RefreshCw className={cn('h-3.5 w-3.5 mr-2', isUsingStableValue && 'animate-spin')} />
               {t('refresh')}
             </Button>
             <Button
@@ -214,11 +227,11 @@ export function Agents() {
           )}
 
           <div className="space-y-3">
-            {agents.map((agent) => (
+            {visibleAgents.map((agent) => (
               <AgentCard
                 key={agent.id}
                 agent={agent}
-                channelGroups={channelGroups}
+                channelGroups={visibleChannelGroups}
                 onOpenSettings={() => setActiveAgentId(agent.id)}
                 onDelete={() => setAgentToDelete(agent)}
               />
@@ -241,7 +254,7 @@ export function Agents() {
       {activeAgent && (
         <AgentSettingsModal
           agent={activeAgent}
-          channelGroups={channelGroups}
+          channelGroups={visibleChannelGroups}
           onClose={() => setActiveAgentId(null)}
         />
       )}

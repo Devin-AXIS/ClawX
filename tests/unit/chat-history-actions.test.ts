@@ -137,6 +137,29 @@ describe('chat history actions', () => {
     expect(h.read().loading).toBe(false);
   });
 
+  it('preserves existing messages when history refresh fails for the current session', async () => {
+    const { createHistoryActions } = await import('@/stores/chat/history-actions');
+    const h = makeHarness({
+      currentSessionKey: 'agent:main:main',
+      messages: [
+        {
+          role: 'assistant',
+          content: 'still here',
+          timestamp: 1773281732,
+        },
+      ],
+    });
+    const actions = createHistoryActions(h.set as never, h.get as never);
+
+    invokeIpcMock.mockRejectedValueOnce(new Error('Gateway unavailable'));
+
+    await actions.loadHistory();
+
+    expect(h.read().messages.map((message) => message.content)).toEqual(['still here']);
+    expect(h.read().error).toBe('Error: Gateway unavailable');
+    expect(h.read().loading).toBe(false);
+  });
+
   it('filters out system messages from loaded history', async () => {
     const { createHistoryActions } = await import('@/stores/chat/history-actions');
     const h = makeHarness();
@@ -230,5 +253,118 @@ describe('chat history actions', () => {
       'What is HEARTBEAT_OK?',
       'HEARTBEAT_OK is a status code',
     ]);
+  });
+
+  it('drops stale history results after the user switches sessions', async () => {
+    const { createHistoryActions } = await import('@/stores/chat/history-actions');
+    let resolveHistory: ((value: unknown) => void) | null = null;
+    invokeIpcMock.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveHistory = resolve;
+    }));
+
+    const h = makeHarness({
+      currentSessionKey: 'agent:main:session-a',
+      messages: [
+        {
+          role: 'assistant',
+          content: 'session b content',
+          timestamp: 1773281732,
+        },
+      ],
+    });
+    const actions = createHistoryActions(h.set as never, h.get as never);
+
+    const loadPromise = actions.loadHistory();
+    h.set({
+      currentSessionKey: 'agent:main:session-b',
+      messages: [
+        {
+          role: 'assistant',
+          content: 'session b content',
+          timestamp: 1773281733,
+        },
+      ],
+    });
+    resolveHistory?.({
+      success: true,
+      result: {
+        messages: [
+          {
+            role: 'assistant',
+            content: 'stale session a content',
+            timestamp: 1773281734,
+          },
+        ],
+      },
+    });
+
+    await loadPromise;
+
+    expect(h.read().currentSessionKey).toBe('agent:main:session-b');
+    expect(h.read().messages.map((message) => message.content)).toEqual(['session b content']);
+  });
+
+  it('preserves newer same-session messages when preview hydration finishes later', async () => {
+    const { createHistoryActions } = await import('@/stores/chat/history-actions');
+    let releasePreviewHydration: (() => void) | null = null;
+    loadMissingPreviews.mockImplementationOnce(async (messages) => {
+      await new Promise<void>((resolve) => {
+        releasePreviewHydration = () => {
+          messages[0]!._attachedFiles = [
+            {
+              fileName: 'image.png',
+              mimeType: 'image/png',
+              fileSize: 42,
+              preview: 'data:image/png;base64,abc',
+              filePath: '/tmp/image.png',
+            },
+          ];
+          resolve();
+        };
+      });
+      return true;
+    });
+
+    invokeIpcMock.mockResolvedValueOnce({
+      success: true,
+      result: {
+        messages: [
+          {
+            id: 'history-1',
+            role: 'assistant',
+            content: 'older message',
+            timestamp: 1000,
+          },
+        ],
+      },
+    });
+
+    const h = makeHarness({
+      currentSessionKey: 'agent:main:main',
+    });
+    const actions = createHistoryActions(h.set as never, h.get as never);
+
+    await actions.loadHistory();
+
+    h.set((state) => ({
+      messages: [
+        ...state.messages,
+        {
+          id: 'newer-1',
+          role: 'assistant',
+          content: 'newer message',
+          timestamp: 1001,
+        },
+      ],
+    }));
+
+    releasePreviewHydration?.();
+    await Promise.resolve();
+
+    expect(h.read().messages.map((message) => message.content)).toEqual([
+      'older message',
+      'newer message',
+    ]);
+    expect(h.read().messages[0]?._attachedFiles?.[0]?.preview).toBe('data:image/png;base64,abc');
   });
 });
