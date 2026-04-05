@@ -98,10 +98,12 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
         progress?: ProgressInfo;
         error?: string;
       };
+      const prev = get();
       set({
         status: status.status,
         updateInfo: status.info || null,
-        progress: status.progress || null,
+        progress: status.progress
+          || (status.status === 'downloading' ? prev.progress : null),
         error: status.error || null,
       });
     });
@@ -170,13 +172,32 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   downloadUpdate: async () => {
-    set({ status: 'downloading', error: null });
+    set({
+      status: 'downloading',
+      error: null,
+      progress: {
+        total: 0,
+        delta: 0,
+        transferred: 0,
+        percent: 0,
+        bytesPerSecond: 0,
+      },
+    });
     
     try {
-      const result = await invokeIpc<{
-        success: boolean;
-        error?: string;
-      }>('update:download');
+      const result = await Promise.race([
+        invokeIpc<{
+          success: boolean;
+          error?: string;
+        }>('update:download'),
+        new Promise<{
+          success: false;
+          error: string;
+        }>((resolve) => setTimeout(() => resolve({
+          success: false,
+          error: 'Update download timed out. Please retry.',
+        }), 180000)),
+      ]);
       
       if (!result.success) {
         set({ status: 'error', error: result.error || 'Failed to download update' });

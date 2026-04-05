@@ -163,10 +163,20 @@
             "description": "通过腾讯官方 OpenClaw 插件扫码连接个人微信",
             "docsUrl": "https://icnnp7d0dymg.feishu.cn/wiki/GHYZwuPCriF0gWkXwkFcJ9zon3b",
             "instructions": [
-                "点击生成二维码，ClawX 会在 OpenClaw 中安装并启用官方微信插件",
+                "点击生成二维码，Lumii 会在 OpenClaw 中安装并启用官方微信插件",
                 "使用微信扫描下方二维码，并在手机上确认连接",
                 "连接成功后，微信里会自动出现新的「微信 ClawBot」对话",
                 "之后可再次通过扫码流程添加更多微信账号，或重新连接已有账号"
+            ]
+        },
+        "lumii": {
+            "description": "通过扫描二维码连接 Lumii（与微信相同的绑定方式）",
+            "docsUrl": "https://github.com/Devin-AXIS/ClawX/blob/main/docs/LUMII_QR_PLUGIN_ARCHITECTURE.md",
+            "instructions": [
+                "点击生成二维码，Lumii 会在 OpenClaw 中安装并启用 Lumii 插件",
+                "打开 Lumii 并扫描下方二维码",
+                "在 Lumii 里确认绑定操作",
+                "后续可重复该流程用于重连或绑定更多账号"
             ]
         },
         "dingtalk": {

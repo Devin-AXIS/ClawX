@@ -236,6 +236,7 @@ const PLUGIN_NPM_NAMES: Record<string, string> = {
   'feishu-openclaw-plugin': '@larksuite/openclaw-lark',
 
   'openclaw-weixin': '@tencent-weixin/openclaw-weixin',
+  'openclaw-lumii': '@lumii/openclaw-lumii',
 };
 
 // ── Version helper ───────────────────────────────────────────────────────────
@@ -364,6 +365,13 @@ export function ensurePluginInstalled(
   pluginDirName: string,
   candidateSources: string[],
   pluginLabel: string,
+  options?: {
+    /**
+     * Keep an existing plugin untouched.
+     * Useful for user-customized plugins that should survive app updates.
+     */
+    preserveExistingInstall?: boolean;
+  },
 ): { installed: boolean; warning?: string } {
   const targetDir = join(homedir(), '.openclaw', 'extensions', pluginDirName);
   const targetManifest = join(targetDir, 'openclaw.plugin.json');
@@ -373,6 +381,13 @@ export function ensurePluginInstalled(
 
   // If already installed, check whether an upgrade is available
   if (existsSync(fsPath(targetManifest))) {
+    const preserveExistingInstall = options?.preserveExistingInstall
+      && process.env.CLAWX_FORCE_UPGRADE_PRESERVED_PLUGINS !== '1';
+    if (preserveExistingInstall) {
+      logger.info(`[plugin] Preserving existing ${pluginLabel} plugin install at ${targetDir}`);
+      return { installed: true };
+    }
+
     if (!sourceDir) return { installed: true }; // no bundled source to compare, keep existing
     const installedVersion = readPluginVersion(targetPkgJson);
     const sourceVersion = readPluginVersion(join(sourceDir, 'package.json'));
@@ -517,6 +532,17 @@ export function ensureWeChatPluginInstalled(): { installed: boolean; warning?: s
   return ensurePluginInstalled('openclaw-weixin', buildCandidateSources('openclaw-weixin'), 'WeChat');
 }
 
+export function ensureLumiiPluginInstalled(): { installed: boolean; warning?: string } {
+  const candidateSources = [
+    ...buildCandidateSources('openclaw-lumii'),
+    // Local development fallback for the standalone plugin workspace.
+    join(process.cwd(), '..', 'openclaw-lumii-plugin'),
+  ];
+  return ensurePluginInstalled('openclaw-lumii', candidateSources, 'Lumii', {
+    preserveExistingInstall: true,
+  });
+}
+
 // ── Bulk startup installer ───────────────────────────────────────────────────
 
 /**
@@ -528,6 +554,7 @@ const ALL_BUNDLED_PLUGINS = [
 
   { fn: ensureFeishuPluginInstalled, label: 'Feishu' },
   { fn: ensureWeChatPluginInstalled, label: 'WeChat' },
+  { fn: ensureLumiiPluginInstalled, label: 'Lumii' },
 ] as const;
 
 /**

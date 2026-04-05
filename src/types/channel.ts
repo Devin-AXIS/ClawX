@@ -9,6 +9,7 @@
 export type ChannelType =
   | 'whatsapp'
   | 'wechat'
+  | 'lumii'
   | 'dingtalk'
   | 'telegram'
   | 'discord'
@@ -83,6 +84,7 @@ export interface ChannelMeta {
 export const CHANNEL_ICONS: Record<ChannelType, string> = {
   whatsapp: '📱',
   wechat: '💬',
+  lumii: '✨',
   dingtalk: '💬',
   telegram: '✈️',
   discord: '🎮',
@@ -104,6 +106,7 @@ export const CHANNEL_ICONS: Record<ChannelType, string> = {
 export const CHANNEL_NAMES: Record<ChannelType, string> = {
   whatsapp: 'WhatsApp',
   wechat: 'WeChat',
+  lumii: 'Lumii',
   dingtalk: 'DingTalk',
   telegram: 'Telegram',
   discord: 'Discord',
@@ -338,6 +341,22 @@ export const CHANNEL_META: Record<ChannelType, ChannelMeta> = {
       'channels:meta.wechat.instructions.1',
       'channels:meta.wechat.instructions.2',
       'channels:meta.wechat.instructions.3',
+    ],
+    isPlugin: true,
+  },
+  lumii: {
+    id: 'lumii',
+    name: 'Lumii',
+    icon: '✨',
+    description: 'channels:meta.lumii.description',
+    connectionType: 'qr',
+    docsUrl: 'channels:meta.lumii.docsUrl',
+    configFields: [],
+    instructions: [
+      'channels:meta.lumii.instructions.0',
+      'channels:meta.lumii.instructions.1',
+      'channels:meta.lumii.instructions.2',
+      'channels:meta.lumii.instructions.3',
     ],
     isPlugin: true,
   },
@@ -579,7 +598,7 @@ export const CHANNEL_META: Record<ChannelType, ChannelMeta> = {
  * Get primary supported channels (non-plugin, commonly used)
  */
 export function getPrimaryChannels(): ChannelType[] {
-  return ['telegram', 'discord', 'whatsapp', 'wechat', 'dingtalk', 'feishu', 'wecom', 'qqbot'];
+  return ['telegram', 'discord', 'whatsapp', 'wechat', 'lumii', 'dingtalk', 'feishu', 'wecom', 'qqbot'];
 }
 
 /**

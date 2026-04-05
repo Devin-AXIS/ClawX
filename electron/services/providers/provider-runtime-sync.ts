@@ -17,6 +17,7 @@ import {
 } from '../../utils/openclaw-auth';
 import { logger } from '../../utils/logger';
 import { listAgentsSnapshot } from '../../utils/agent-config';
+import type { ProviderAccount } from '../../shared/providers/types';
 
 const GOOGLE_OAUTH_RUNTIME_PROVIDER = 'google-gemini-cli';
 const GOOGLE_OAUTH_DEFAULT_MODEL_REF = `${GOOGLE_OAUTH_RUNTIME_PROVIDER}/gemini-3-pro-preview`;
@@ -66,6 +67,34 @@ function normalizeProviderBaseUrl(
   }
 
   return normalized;
+}
+
+type RuntimeCustomModelEntry = { id: string; name: string };
+
+function normalizeCustomModelEntries(
+  entries?: Array<{ id?: string; name?: string }>,
+): RuntimeCustomModelEntry[] {
+  const result: RuntimeCustomModelEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries ?? []) {
+    const id = (entry?.id || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    result.push({ id, name: (entry?.name || '').trim() || id });
+  }
+  return result;
+}
+
+function getRuntimeCustomModelEntries(
+  metadata?: ProviderAccount['metadata'],
+): RuntimeCustomModelEntry[] {
+  const explicitEntries = normalizeCustomModelEntries(metadata?.customModelEntries);
+  if (explicitEntries.length > 0) {
+    return explicitEntries;
+  }
+  return Array.from(
+    new Set((metadata?.customModels ?? []).map((model) => model.trim()).filter(Boolean)),
+  ).map((id) => ({ id, name: id }));
 }
 
 function shouldUseExplicitDefaultOverride(config: ProviderConfig, runtimeProviderKey: string): boolean {
@@ -178,6 +207,49 @@ export async function getProviderFallbackModelRefs(config: ProviderConfig): Prom
   }
 
   return results;
+}
+
+async function getEmergencyFallbackModelRefs(primaryProviderId: string): Promise<string[]> {
+  const providers = await getAllProviders();
+  const refs: string[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of providers) {
+    if (!candidate.enabled || candidate.id === primaryProviderId) {
+      continue;
+    }
+
+    const hasBrowserOAuth = Boolean(await getBrowserOAuthRuntimeProvider(candidate));
+    const hasApiCredential = Boolean(await getApiKey(candidate.id));
+    if (!hasBrowserOAuth && !hasApiCredential) {
+      continue;
+    }
+
+    const ref = getProviderModelRef(candidate);
+    if (!ref || seen.has(ref)) {
+      continue;
+    }
+
+    seen.add(ref);
+    refs.push(ref);
+    if (refs.length >= 2) {
+      break;
+    }
+  }
+
+  return refs;
+}
+
+async function resolveDefaultProviderFallbackModelRefs(config: ProviderConfig): Promise<string[]> {
+  const explicitFallbacks = await getProviderFallbackModelRefs(config);
+  if (explicitFallbacks.length > 0) {
+    return explicitFallbacks;
+  }
+
+  // Self-heal: if default provider has no explicit fallback configured, try a
+  // credentialed secondary provider to avoid dead-end timeouts (e.g. network
+  // instability on a single vendor causing "no response" in chat UI).
+  return await getEmergencyFallbackModelRefs(config.id);
 }
 
 type GatewayRefreshMode = 'reload' | 'restart';
@@ -310,12 +382,14 @@ async function syncRuntimeProviderConfig(
   config: ProviderConfig,
   context: RuntimeProviderSyncContext,
 ): Promise<void> {
+  const account = await getProviderAccount(config.id);
+  const customModelEntries = getRuntimeCustomModelEntries(account?.metadata);
   await syncProviderConfigToOpenClaw(context.runtimeProviderKey, config.model, {
     baseUrl: normalizeProviderBaseUrl(config, config.baseUrl || context.meta?.baseUrl, context.api),
     api: context.api,
     apiKeyEnv: context.meta?.apiKeyEnv,
     headers: config.headers ?? context.meta?.headers,
-  });
+  }, customModelEntries);
 }
 
 async function syncCustomProviderAgentModel(
@@ -332,11 +406,16 @@ async function syncCustomProviderAgentModel(
     return;
   }
 
-  const modelId = config.model;
+  const account = await getProviderAccount(config.id);
+  const customModels = getRuntimeCustomModelEntries(account?.metadata);
+  const modelEntries = [
+    ...customModels,
+    ...(config.model?.trim() ? [{ id: config.model.trim(), name: config.model.trim() }] : []),
+  ].filter((entry, index, array) => array.findIndex((candidate) => candidate.id === entry.id) === index);
   await updateAgentModelProvider(runtimeProviderKey, {
     baseUrl: normalizeProviderBaseUrl(config, config.baseUrl, config.apiProtocol || 'openai-completions'),
     api: config.apiProtocol || 'openai-completions',
-    models: modelId ? [{ id: modelId, name: modelId }] : [],
+    models: modelEntries,
     apiKey: resolvedKey,
   });
 }
@@ -510,7 +589,7 @@ export async function syncUpdatedProviderToRuntime(
   }
 
   const ock = context.runtimeProviderKey;
-  const fallbackModels = await getProviderFallbackModelRefs(config);
+  const fallbackModels = await resolveDefaultProviderFallbackModelRefs(config);
 
   const defaultProviderId = await getDefaultProvider();
   if (defaultProviderId === config.id) {
@@ -591,7 +670,7 @@ export async function syncDefaultProviderToRuntime(
 
   const ock = await resolveRuntimeProviderKey(provider);
   const providerKey = await getApiKey(providerId);
-  const fallbackModels = await getProviderFallbackModelRefs(provider);
+  const fallbackModels = await resolveDefaultProviderFallbackModelRefs(provider);
   const oauthTypes = ['minimax-portal', 'minimax-portal-cn'];
   const browserOAuthRuntimeProvider = await getBrowserOAuthRuntimeProvider(provider);
   const isOAuthProvider = (oauthTypes.includes(provider.type) && !providerKey) || Boolean(browserOAuthRuntimeProvider);
@@ -701,11 +780,16 @@ export async function syncDefaultProviderToRuntime(
     providerKey &&
     provider.baseUrl
   ) {
-    const modelId = provider.model;
+    const account = await getProviderAccount(provider.id);
+    const customModels = getRuntimeCustomModelEntries(account?.metadata);
+    const modelEntries = [
+      ...customModels,
+      ...(provider.model?.trim() ? [{ id: provider.model.trim(), name: provider.model.trim() }] : []),
+    ].filter((entry, index, array) => array.findIndex((candidate) => candidate.id === entry.id) === index);
     await updateAgentModelProvider(ock, {
       baseUrl: normalizeProviderBaseUrl(provider, provider.baseUrl, provider.apiProtocol || 'openai-completions'),
       api: provider.apiProtocol || 'openai-completions',
-      models: modelId ? [{ id: modelId, name: modelId }] : [],
+      models: modelEntries,
       apiKey: providerKey,
     });
   }

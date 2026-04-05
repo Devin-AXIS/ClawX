@@ -6,23 +6,33 @@ const TRAILING_DASH_RE = /-+$/;
 
 export const UI_WECHAT_CHANNEL_TYPE = 'wechat';
 export const OPENCLAW_WECHAT_CHANNEL_TYPE = 'openclaw-weixin';
+export const UI_LUMII_CHANNEL_TYPE = 'lumii';
+export const OPENCLAW_LUMII_CHANNEL_TYPE = 'openclaw-lumii';
 
 export type QrChannelEvent = 'qr' | 'success' | 'error';
 
 export function toOpenClawChannelType(channelType: string): string {
-  return channelType === UI_WECHAT_CHANNEL_TYPE ? OPENCLAW_WECHAT_CHANNEL_TYPE : channelType;
+  if (channelType === UI_WECHAT_CHANNEL_TYPE) return OPENCLAW_WECHAT_CHANNEL_TYPE;
+  if (channelType === UI_LUMII_CHANNEL_TYPE) return OPENCLAW_LUMII_CHANNEL_TYPE;
+  return channelType;
 }
 
 export function toUiChannelType(channelType: string): string {
-  return channelType === OPENCLAW_WECHAT_CHANNEL_TYPE ? UI_WECHAT_CHANNEL_TYPE : channelType;
+  if (channelType === OPENCLAW_WECHAT_CHANNEL_TYPE) return UI_WECHAT_CHANNEL_TYPE;
+  if (channelType === OPENCLAW_LUMII_CHANNEL_TYPE) return UI_LUMII_CHANNEL_TYPE;
+  return channelType;
 }
 
 export function isWechatChannelType(channelType: string | null | undefined): boolean {
   return channelType === UI_WECHAT_CHANNEL_TYPE || channelType === OPENCLAW_WECHAT_CHANNEL_TYPE;
 }
 
+export function isLumiiChannelType(channelType: string | null | undefined): boolean {
+  return channelType === UI_LUMII_CHANNEL_TYPE || channelType === OPENCLAW_LUMII_CHANNEL_TYPE;
+}
+
 export function usesPluginManagedQrAccounts(channelType: string | null | undefined): boolean {
-  return isWechatChannelType(channelType);
+  return isWechatChannelType(channelType) || isLumiiChannelType(channelType);
 }
 
 export function buildQrChannelEventName(channelType: string, event: QrChannelEvent): string {

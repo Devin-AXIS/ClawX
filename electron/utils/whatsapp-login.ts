@@ -39,27 +39,41 @@ function resolveOpenClawPackageJson(packageName: string): string {
     }
 }
 
-const baileysPath = dirname(resolveOpenClawPackageJson('@whiskeysockets/baileys'));
-const qrCodeModulePath = openclawRequire.resolve('qrcode-terminal/vendor/QRCode/index.js');
-const qrErrorCorrectLevelPath = openclawRequire.resolve('qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel.js');
+let baileysPath: string | null = null;
+let makeWASocket: any = null;
+let initAuth: any = null; // Rename to avoid React hook linter error
+let DisconnectReason: any = null;
+let fetchLatestBaileysVersion: any = null;
+let QRCodeModule: any = null;
+let QRErrorCorrectLevelModule: any = null;
+let whatsAppBootstrapError: Error | null = null;
 
-// Load Baileys dependencies dynamically
-const {
-    default: makeWASocket,
-    useMultiFileAuthState: initAuth, // Rename to avoid React hook linter error
-    DisconnectReason,
-    fetchLatestBaileysVersion
-} = require(baileysPath);
+try {
+    baileysPath = dirname(resolveOpenClawPackageJson('@whiskeysockets/baileys'));
+    const qrCodeModulePath = openclawRequire.resolve('qrcode-terminal/vendor/QRCode/index.js');
+    const qrErrorCorrectLevelPath = openclawRequire.resolve('qrcode-terminal/vendor/QRCode/QRErrorCorrectLevel.js');
 
-// Load QRCode dependencies dynamically
-const QRCodeModule = require(qrCodeModulePath);
-const QRErrorCorrectLevelModule = require(qrErrorCorrectLevelPath);
+    // Load Baileys dependencies dynamically
+    ({
+        default: makeWASocket,
+        useMultiFileAuthState: initAuth,
+        DisconnectReason,
+        fetchLatestBaileysVersion,
+    } = require(baileysPath));
+
+    // Load QRCode dependencies dynamically
+    QRCodeModule = require(qrCodeModulePath);
+    QRErrorCorrectLevelModule = require(qrErrorCorrectLevelPath);
+} catch (error) {
+    whatsAppBootstrapError = error instanceof Error ? error : new Error(String(error));
+    console.warn('[WhatsAppLogin] Optional dependency bootstrap failed, WhatsApp login disabled:', whatsAppBootstrapError.message);
+}
 
 // Types from Baileys (approximate since we don't have types for dynamic require)
 interface BaileysError extends Error {
     output?: { statusCode?: number };
 }
-type BaileysSocket = ReturnType<typeof makeWASocket>;
+type BaileysSocket = any;
 type ConnectionState = {
     connection: 'close' | 'open' | 'connecting';
     lastDisconnect?: {
@@ -220,6 +234,14 @@ export class WhatsAppLoginManager extends EventEmitter {
      * Start WhatsApp pairing process
      */
     async start(accountId: string = 'default'): Promise<void> {
+        if (whatsAppBootstrapError || !makeWASocket || !initAuth || !fetchLatestBaileysVersion) {
+            const message =
+                whatsAppBootstrapError?.message ??
+                'missing WhatsApp runtime dependencies';
+            this.emit('error', `WhatsApp login unavailable: ${message}`);
+            return;
+        }
+
         if (this.active && this.accountId === accountId) {
             // Already running for this account, emit current QR if available
             if (this.qr) {

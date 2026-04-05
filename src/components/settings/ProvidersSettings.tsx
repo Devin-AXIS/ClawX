@@ -26,7 +26,6 @@ import { Separator } from '@/components/ui/separator';
 import {
   useProviderStore,
   type ProviderAccount,
-  type ProviderConfig,
   type ProviderVendorInfo,
 } from '@/stores/providers';
 import {
@@ -53,7 +52,7 @@ import { useSettingsStore } from '@/stores/settings';
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
 
-const inputClasses = 'h-[44px] rounded-xl font-mono text-[13px] bg-[#eeece3] dark:bg-muted border-black/10 dark:border-white/10 focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40';
+const inputClasses = 'h-[44px] rounded-xl font-mono text-[13px] bg-muted/70 dark:bg-muted border-black/10 dark:border-white/10 focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40';
 const labelClasses = 'text-[14px] text-foreground/80 font-bold';
 type ArkMode = 'apikey' | 'codeplan';
 
@@ -84,6 +83,113 @@ function fallbackModelsEqual(a?: string[], b?: string[]): boolean {
   const left = normalizeFallbackModels(a);
   const right = normalizeFallbackModels(b);
   return left.length === right.length && left.every((model, index) => model === right[index]);
+}
+
+type CustomModelEntry = { id: string; name: string };
+type DiscoveredModelEntry = { id: string; name: string };
+
+function normalizeCustomModels(models?: string[]): string[] {
+  return Array.from(new Set((models ?? []).map((model) => model.trim()).filter(Boolean)));
+}
+
+function normalizeCustomModelEntries(
+  entries?: Array<{ id?: string; name?: string }>,
+): CustomModelEntry[] {
+  const result: CustomModelEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries ?? []) {
+    const id = (entry?.id || '').trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const name = (entry?.name || '').trim() || id;
+    result.push({ id, name });
+  }
+  return result;
+}
+
+function parseCustomModelLines(text: string): CustomModelEntry[] {
+  const parsed: CustomModelEntry[] = [];
+  const lines = text.split('\n');
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    let name = line;
+    let id = line;
+    const pipeMatch = line.match(/^(.+?)\s*\|\s*(.+)$/);
+    const equalMatch = line.match(/^(.+?)\s*=\s*(.+)$/);
+    if (pipeMatch) {
+      name = pipeMatch[1].trim();
+      id = pipeMatch[2].trim();
+    } else if (equalMatch) {
+      name = equalMatch[1].trim();
+      id = equalMatch[2].trim();
+    }
+
+    if (!id) continue;
+    parsed.push({ id, name: name || id });
+  }
+
+  return normalizeCustomModelEntries(parsed);
+}
+
+function formatCustomModelLines(
+  entries?: Array<{ id?: string; name?: string }>,
+  fallbackModels?: string[],
+): string {
+  const normalizedEntries = normalizeCustomModelEntries(entries);
+  if (normalizedEntries.length > 0) {
+    return normalizedEntries
+      .map((entry) => (entry.name === entry.id ? entry.id : `${entry.name} | ${entry.id}`))
+      .join('\n');
+  }
+  return normalizeCustomModels(fallbackModels).join('\n');
+}
+
+function customModelEntriesEqual(
+  a?: Array<{ id?: string; name?: string }>,
+  b?: Array<{ id?: string; name?: string }>,
+): boolean {
+  const left = normalizeCustomModelEntries(a);
+  const right = normalizeCustomModelEntries(b);
+  return left.length === right.length
+    && left.every((entry, index) => (
+      entry.id === right[index]?.id && entry.name === right[index]?.name
+    ));
+}
+
+function getCustomModelEntriesFromMetadata(
+  metadata?: ProviderAccount['metadata'],
+): CustomModelEntry[] {
+  const explicitEntries = normalizeCustomModelEntries(metadata?.customModelEntries);
+  if (explicitEntries.length > 0) {
+    return explicitEntries;
+  }
+  return normalizeCustomModels(metadata?.customModels).map((id) => ({ id, name: id }));
+}
+
+function supportsCustomModelList(vendorId: string): boolean {
+  return vendorId === 'custom' || vendorId === 'ipollo';
+}
+
+async function discoverProviderModels(params: {
+  providerId?: string;
+  providerType: string;
+  apiKey?: string;
+  options?: { baseUrl?: string; apiProtocol?: ProviderAccount['apiProtocol'] };
+}): Promise<{ models: DiscoveredModelEntry[]; error?: string }> {
+  const response = await hostApiFetch<{
+    success?: boolean;
+    models?: DiscoveredModelEntry[];
+    error?: string;
+  }>('/api/providers/discover-models', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+  return {
+    models: Array.isArray(response.models) ? response.models : [],
+    error: response.error,
+  };
 }
 
 function getUserAgentHeader(headers?: Record<string, string>): string {
@@ -185,6 +291,8 @@ export function ProvidersSettings() {
     options?: {
       baseUrl?: string;
       model?: string;
+      customModels?: string[];
+      customModelEntries?: CustomModelEntry[];
       authMode?: ProviderAccount['authMode'];
       apiProtocol?: ProviderAccount['apiProtocol'];
       headers?: Record<string, string>;
@@ -203,6 +311,17 @@ export function ProvidersSettings() {
         apiProtocol: options?.apiProtocol,
         headers: options?.headers,
         model: options?.model,
+        metadata: (() => {
+          const entries = normalizeCustomModelEntries(options?.customModelEntries);
+          const models = normalizeCustomModels(options?.customModels);
+          if (entries.length === 0 && models.length === 0) {
+            return undefined;
+          }
+          return {
+            customModels: models.length > 0 ? models : entries.map((entry) => entry.id),
+            customModelEntries: entries,
+          };
+        })(),
         enabled: true,
         isDefault: false,
         createdAt: new Date().toISOString(),
@@ -287,9 +406,10 @@ export function ProvidersSettings() {
                   if (payload.updates.apiProtocol !== undefined) updates.apiProtocol = payload.updates.apiProtocol;
                   if (payload.updates.headers !== undefined) updates.headers = payload.updates.headers;
                   if (payload.updates.model !== undefined) updates.model = payload.updates.model;
+                  if (payload.updates.metadata !== undefined) updates.metadata = payload.updates.metadata;
                   if (payload.updates.fallbackModels !== undefined) updates.fallbackModels = payload.updates.fallbackModels;
-                  if (payload.updates.fallbackProviderIds !== undefined) {
-                    updates.fallbackAccountIds = payload.updates.fallbackProviderIds;
+                  if (payload.updates.fallbackAccountIds !== undefined) {
+                    updates.fallbackAccountIds = payload.updates.fallbackAccountIds;
                   }
                 }
                 await updateAccount(
@@ -330,7 +450,7 @@ interface ProviderCardProps {
   onCancelEdit: () => void;
   onDelete: () => void;
   onSetDefault: () => void;
-  onSaveEdits: (payload: { newApiKey?: string; updates?: Partial<ProviderConfig> }) => Promise<void>;
+  onSaveEdits: (payload: { newApiKey?: string; updates?: Partial<ProviderAccount> }) => Promise<void>;
   onValidateKey: (
     key: string,
     options?: { baseUrl?: string; apiProtocol?: ProviderAccount['apiProtocol'] }
@@ -360,6 +480,9 @@ function ProviderCard({
   const [apiProtocol, setApiProtocol] = useState<ProviderAccount['apiProtocol']>(account.apiProtocol || 'openai-completions');
   const [userAgent, setUserAgent] = useState(getUserAgentHeader(account.headers));
   const [modelId, setModelId] = useState(account.model || '');
+  const [customModelsText, setCustomModelsText] = useState(
+    formatCustomModelLines(account.metadata?.customModelEntries, account.metadata?.customModels)
+  );
   const [fallbackModelsText, setFallbackModelsText] = useState(
     normalizeFallbackModels(account.fallbackModels).join('\n')
   );
@@ -369,6 +492,7 @@ function ProviderCard({
   const [showKey, setShowKey] = useState(false);
   const [showFallback, setShowFallback] = useState(false);
   const [validating, setValidating] = useState(false);
+  const [discoveringModels, setDiscoveringModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [arkMode, setArkMode] = useState<ArkMode>('apikey');
 
@@ -385,6 +509,7 @@ function ProviderCard({
     ? (typeInfo?.codePlanDocsUrl || providerDocsUrl)
     : providerDocsUrl;
   const canEditModelConfig = Boolean(typeInfo?.showBaseUrl || showModelIdField);
+  const showCustomModelsField = supportsCustomModelList(account.vendorId);
   const showUserAgentField = shouldShowUserAgentField(account);
 
   useEffect(() => {
@@ -395,6 +520,7 @@ function ProviderCard({
       setApiProtocol(account.apiProtocol || 'openai-completions');
       setUserAgent(getUserAgentHeader(account.headers));
       setModelId(account.model || '');
+      setCustomModelsText(formatCustomModelLines(account.metadata?.customModelEntries, account.metadata?.customModels));
       setFallbackModelsText(normalizeFallbackModels(account.fallbackModels).join('\n'));
       setFallbackProviderIds(normalizeFallbackProviderIds(account.fallbackAccountIds));
       setArkMode(
@@ -407,7 +533,7 @@ function ProviderCard({
         ) ? 'codeplan' : 'apikey'
       );
     }
-  }, [isEditing, account.baseUrl, account.headers, account.fallbackModels, account.fallbackAccountIds, account.model, account.apiProtocol, account.vendorId, typeInfo?.codePlanPresetBaseUrl, typeInfo?.codePlanPresetModelId]);
+  }, [isEditing, account.baseUrl, account.headers, account.fallbackModels, account.fallbackAccountIds, account.model, account.metadata?.customModels, account.metadata?.customModelEntries, account.apiProtocol, account.vendorId, typeInfo?.codePlanPresetBaseUrl, typeInfo?.codePlanPresetModelId]);
 
   const fallbackOptions = allProviders.filter((candidate) => candidate.account.id !== account.id);
 
@@ -419,11 +545,47 @@ function ProviderCard({
     ));
   };
 
+  const handleDiscoverModels = async () => {
+    setDiscoveringModels(true);
+    try {
+      const discovered = await discoverProviderModels({
+        providerId: account.id,
+        providerType: account.vendorId,
+        apiKey: newKey.trim() || undefined,
+        options: {
+          baseUrl: baseUrl.trim() || undefined,
+          apiProtocol: (account.vendorId === 'custom' || account.vendorId === 'ollama')
+            ? apiProtocol
+            : undefined,
+        },
+      });
+      if (discovered.error) {
+        toast.error(discovered.error);
+        return;
+      }
+      const entries = normalizeCustomModelEntries(discovered.models);
+      if (entries.length === 0) {
+        toast.error('No models discovered from current provider settings');
+        return;
+      }
+      setCustomModelsText(formatCustomModelLines(entries));
+      if (!modelId.trim()) {
+        setModelId(entries[0].id);
+      }
+      toast.success(`Loaded ${entries.length} models`);
+    } catch (error) {
+      toast.error(String(error));
+    } finally {
+      setDiscoveringModels(false);
+    }
+  };
+
   const handleSaveEdits = async () => {
     setSaving(true);
     try {
-      const payload: { newApiKey?: string; updates?: Partial<ProviderConfig> } = {};
+      const payload: { newApiKey?: string; updates?: Partial<ProviderAccount> } = {};
       const normalizedFallbackModels = normalizeFallbackModels(fallbackModelsText.split('\n'));
+      const parsedCustomModelEntries = parseCustomModelLines(customModelsText);
 
       if (newKey.trim()) {
         setValidating(true);
@@ -447,7 +609,7 @@ function ProviderCard({
           return;
         }
 
-        const updates: Partial<ProviderConfig> = {};
+        const updates: Partial<ProviderAccount> = {};
         if (typeInfo?.showBaseUrl && (baseUrl.trim() || undefined) !== (account.baseUrl || undefined)) {
           updates.baseUrl = baseUrl.trim() || undefined;
         }
@@ -456,6 +618,21 @@ function ProviderCard({
         }
         if (showModelIdField && (modelId.trim() || undefined) !== (account.model || undefined)) {
           updates.model = modelId.trim() || undefined;
+        }
+        if (showCustomModelsField) {
+          const nextEntries = normalizeCustomModelEntries(
+            parsedCustomModelEntries.length > 0
+              ? parsedCustomModelEntries
+              : (modelId.trim() ? [{ id: modelId.trim(), name: modelId.trim() }] : []),
+          );
+          const currentEntries = getCustomModelEntriesFromMetadata(account.metadata);
+          if (!customModelEntriesEqual(nextEntries, currentEntries)) {
+            updates.metadata = {
+              ...(account.metadata ?? {}),
+              customModels: nextEntries.map((entry) => entry.id),
+              customModelEntries: nextEntries,
+            };
+          }
         }
         const existingUserAgent = getUserAgentHeader(account.headers).trim();
         const nextUserAgent = userAgent.trim();
@@ -466,7 +643,7 @@ function ProviderCard({
           updates.fallbackModels = normalizedFallbackModels;
         }
         if (!fallbackProviderIdsEqual(fallbackProviderIds, account.fallbackAccountIds)) {
-          updates.fallbackProviderIds = normalizeFallbackProviderIds(fallbackProviderIds);
+          updates.fallbackAccountIds = normalizeFallbackProviderIds(fallbackProviderIds);
         }
         if (Object.keys(updates).length > 0) {
           payload.updates = updates;
@@ -645,6 +822,33 @@ function ProviderCard({
                   />
                 </div>
               )}
+              {showCustomModelsField && (
+                <div className="space-y-1.5 pt-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Label className={currentLabelClasses}>Models (name | id, one per line)</Label>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={handleDiscoverModels}
+                      disabled={discoveringModels}
+                      className="h-7 rounded-lg px-2 text-[12px] text-blue-500 hover:text-blue-600 hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      {discoveringModels ? 'Loading...' : 'Auto detect'}
+                    </Button>
+                  </div>
+                  <textarea
+                    value={customModelsText}
+                    onChange={(e) => setCustomModelsText(e.target.value)}
+                    placeholder="Qwen 3.5 Plus | qwen3.5-plus&#10;GPT-5.4 Mini | gpt-5.4-mini&#10;kimi-k2.5"
+                    className={isDefault
+                      ? "min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-card px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 shadow-sm"
+                      : "min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-muted/70 dark:bg-muted px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40"}
+                  />
+                  <p className="text-[12px] text-muted-foreground">
+                    Supports `name | id`, `name = id`, or plain `id`.
+                  </p>
+                </div>
+              )}
               {account.vendorId === 'ark' && codePlanPreset && (
                 <div className="space-y-1.5 pt-2">
                   <div className="flex items-center justify-between gap-2">
@@ -753,7 +957,7 @@ function ProviderCard({
                     placeholder={t('aiProviders.dialog.fallbackModelIdsPlaceholder')}
                     className={isDefault
                       ? "min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-card px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 shadow-sm"
-                      : "min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-[#eeece3] dark:bg-muted px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40"}
+                      : "min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-muted/70 dark:bg-muted px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40"}
                   />
                   <p className="text-[12px] text-muted-foreground">
                     {t('aiProviders.dialog.fallbackModelIdsHelp')}
@@ -764,7 +968,7 @@ function ProviderCard({
                   {fallbackOptions.length === 0 ? (
                     <p className="text-[13px] text-muted-foreground">{t('aiProviders.dialog.noFallbackOptions')}</p>
                   ) : (
-                    <div className={cn("space-y-2 rounded-xl border border-black/10 dark:border-white/10 p-3 shadow-sm", isDefault ? "bg-white dark:bg-card" : "bg-[#eeece3] dark:bg-muted")}>
+                    <div className={cn("space-y-2 rounded-xl border border-black/10 dark:border-white/10 p-3 shadow-sm", isDefault ? "bg-white dark:bg-card" : "bg-muted/70 dark:bg-muted")}>
                       {fallbackOptions.map((candidate) => (
                         <label key={candidate.account.id} className="flex items-center gap-3 text-[13px] cursor-pointer group/label">
                           <input
@@ -841,7 +1045,7 @@ function ProviderCard({
                     "rounded-xl px-4 border-black/10 dark:border-white/10",
                     isDefault
                       ? "h-[40px] bg-white dark:bg-card hover:bg-black/5 dark:hover:bg-white/10"
-                      : "h-[44px] bg-[#eeece3] dark:bg-muted hover:bg-black/5 dark:hover:bg-white/10 shadow-sm"
+                      : "h-[44px] bg-muted/70 dark:bg-muted hover:bg-black/5 dark:hover:bg-white/10 shadow-sm"
                   )}
                   disabled={
                     validating
@@ -851,6 +1055,13 @@ function ProviderCard({
                       && (baseUrl.trim() || undefined) === (account.baseUrl || undefined)
                       && userAgent.trim() === getUserAgentHeader(account.headers).trim()
                       && (modelId.trim() || undefined) === (account.model || undefined)
+                      && (
+                        !showCustomModelsField
+                        || customModelEntriesEqual(
+                          parseCustomModelLines(customModelsText),
+                          getCustomModelEntriesFromMetadata(account.metadata),
+                        )
+                      )
                       && fallbackModelsEqual(normalizeFallbackModels(fallbackModelsText.split('\n')), account.fallbackModels)
                       && fallbackProviderIdsEqual(fallbackProviderIds, account.fallbackAccountIds)
                     )
@@ -870,7 +1081,7 @@ function ProviderCard({
                     "p-0 rounded-xl",
                     isDefault
                       ? "h-[40px] w-[40px] hover:bg-black/5 dark:hover:bg-white/10"
-                      : "h-[44px] w-[44px] bg-[#eeece3] dark:bg-muted border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10 shadow-sm text-muted-foreground hover:text-foreground"
+                      : "h-[44px] w-[44px] bg-muted/70 dark:bg-muted border border-black/10 dark:border-white/10 hover:bg-black/5 dark:hover:bg-white/10 shadow-sm text-muted-foreground hover:text-foreground"
                   )}
                 >
                   <X className="h-4 w-4" />
@@ -898,6 +1109,8 @@ interface AddProviderDialogProps {
     options?: {
       baseUrl?: string;
       model?: string;
+      customModels?: string[];
+      customModelEntries?: CustomModelEntry[];
       authMode?: ProviderAccount['authMode'];
       apiProtocol?: ProviderAccount['apiProtocol'];
       headers?: Record<string, string>;
@@ -925,11 +1138,13 @@ function AddProviderDialog({
   const [apiKey, setApiKey] = useState('');
   const [baseUrl, setBaseUrl] = useState('');
   const [modelId, setModelId] = useState('');
+  const [customModelsText, setCustomModelsText] = useState('');
   const [apiProtocol, setApiProtocol] = useState<ProviderAccount['apiProtocol']>('openai-completions');
   const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
   const [userAgent, setUserAgent] = useState('');
   const [arkMode, setArkMode] = useState<ArkMode>('apikey');
   const [showKey, setShowKey] = useState(false);
+  const [discoveringModels, setDiscoveringModels] = useState(false);
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
@@ -952,6 +1167,7 @@ function AddProviderDialog({
   const [authMode, setAuthMode] = useState<'oauth' | 'apikey'>('apikey');
 
   const typeInfo = PROVIDER_TYPE_INFO.find((t) => t.id === selectedType);
+  const showCustomModelsField = supportsCustomModelList(selectedType || '');
   const providerDocsUrl = getProviderDocsUrl(typeInfo, i18n.language);
   const showModelIdField = shouldShowProviderModelId(typeInfo, devModeUnlocked);
   const codePlanPreset = typeInfo?.codePlanPresetBaseUrl && typeInfo?.codePlanPresetModelId
@@ -1133,6 +1349,42 @@ function AddProviderDialog({
     }
   };
 
+  const handleDiscoverModels = async () => {
+    if (!selectedType) return;
+    setDiscoveringModels(true);
+    try {
+      const discovered = await discoverProviderModels({
+        providerType: selectedType,
+        apiKey: apiKey.trim() || undefined,
+        options: {
+          baseUrl: baseUrl.trim() || undefined,
+          apiProtocol: (selectedType === 'custom' || selectedType === 'ollama')
+            ? apiProtocol
+            : undefined,
+        },
+      });
+      if (discovered.error) {
+        setValidationError(discovered.error);
+        return;
+      }
+      const entries = normalizeCustomModelEntries(discovered.models);
+      if (entries.length === 0) {
+        setValidationError('No models discovered from current provider settings');
+        return;
+      }
+      setCustomModelsText(formatCustomModelLines(entries));
+      if (!modelId.trim()) {
+        setModelId(entries[0].id);
+      }
+      setValidationError(null);
+      toast.success(`Loaded ${entries.length} models`);
+    } catch (error) {
+      setValidationError(String(error));
+    } finally {
+      setDiscoveringModels(false);
+    }
+  };
+
   const availableTypes = PROVIDER_TYPE_INFO.filter((type) => {
     // Skip providers that are temporarily hidden from the UI.
     if (type.hidden) return false;
@@ -1188,6 +1440,13 @@ function AddProviderDialog({
         return;
       }
 
+      const parsedCustomModelEntries = parseCustomModelLines(customModelsText);
+      const finalCustomModelEntries = normalizeCustomModelEntries(
+        parsedCustomModelEntries.length > 0
+          ? parsedCustomModelEntries
+          : (modelId.trim() ? [{ id: modelId.trim(), name: modelId.trim() }] : []),
+      );
+
       await onAdd(
         selectedType,
         name || (typeInfo?.id === 'custom' ? t('aiProviders.custom') : typeInfo?.name) || selectedType,
@@ -1197,6 +1456,8 @@ function AddProviderDialog({
           apiProtocol: (selectedType === 'custom' || selectedType === 'ollama') ? apiProtocol : undefined,
           headers: userAgent.trim() ? { 'User-Agent': userAgent.trim() } : undefined,
           model: resolveProviderModelForSave(typeInfo, modelId, devModeUnlocked),
+          customModels: showCustomModelsField ? finalCustomModelEntries.map((entry) => entry.id) : undefined,
+          customModelEntries: showCustomModelsField ? finalCustomModelEntries : undefined,
           authMode: useOAuthFlow ? (preferredOAuthMode || 'oauth_device') : selectedType === 'ollama'
             ? 'local'
             : (isOAuth && supportsApiKey && authMode === 'apikey')
@@ -1213,7 +1474,7 @@ function AddProviderDialog({
 
   return (
     <div data-testid="add-provider-dialog" className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-[#f3f1e9] dark:bg-card overflow-hidden">
+      <Card className="w-full max-w-2xl max-h-[90vh] flex flex-col rounded-3xl border-0 shadow-2xl bg-card/95 dark:bg-card overflow-hidden">
         <CardHeader className="relative pb-2 shrink-0">
           <CardTitle className="text-2xl font-serif font-normal">{t('aiProviders.dialog.title')}</CardTitle>
           <CardDescription className="text-[15px] mt-1 text-foreground/70">
@@ -1241,6 +1502,7 @@ function AddProviderDialog({
                     setName(type.id === 'custom' ? t('aiProviders.custom') : type.name);
                     setBaseUrl(type.defaultBaseUrl || '');
                     setModelId(type.defaultModelId || '');
+                    setCustomModelsText(type.defaultModelId || '');
                     setUserAgent('');
                     setShowAdvancedConfig(false);
                     setArkMode('apikey');
@@ -1276,6 +1538,7 @@ function AddProviderDialog({
                     setValidationError(null);
                     setBaseUrl('');
                     setModelId('');
+                    setCustomModelsText('');
                     setUserAgent('');
                     setShowAdvancedConfig(false);
                     setArkMode('apikey');
@@ -1316,7 +1579,7 @@ function AddProviderDialog({
 
                 {/* Auth mode toggle for providers supporting both */}
                 {isOAuth && supportsApiKey && (
-                  <div className="flex rounded-xl border border-black/10 dark:border-white/10 overflow-hidden text-[13px] font-medium shadow-sm bg-[#eeece3] dark:bg-muted p-1 gap-1">
+                  <div className="flex rounded-xl border border-black/10 dark:border-white/10 overflow-hidden text-[13px] font-medium shadow-sm bg-muted/70 dark:bg-muted p-1 gap-1">
                     <button
                       onClick={() => setAuthMode('oauth')}
                       className={cn(
@@ -1413,6 +1676,32 @@ function AddProviderDialog({
                       }}
                       className={inputClasses}
                     />
+                  </div>
+                )}
+                {showCustomModelsField && (
+                  <div className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <Label htmlFor="customModels" className={labelClasses}>Models (name | id, one per line)</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleDiscoverModels}
+                        disabled={discoveringModels || (!apiKey.trim() && selectedType !== 'ollama')}
+                        className="h-7 rounded-lg px-2 text-[12px] text-blue-500 hover:text-blue-600 hover:bg-black/5 dark:hover:bg-white/5"
+                      >
+                        {discoveringModels ? 'Loading...' : 'Auto detect'}
+                      </Button>
+                    </div>
+                    <textarea
+                      id="customModels"
+                      value={customModelsText}
+                      onChange={(e) => setCustomModelsText(e.target.value)}
+                      placeholder="Qwen 3.5 Plus | qwen3.5-plus&#10;GPT-5.4 Mini | gpt-5.4-mini&#10;kimi-k2.5"
+                      className="min-h-24 w-full rounded-xl border border-black/10 dark:border-white/10 bg-muted/70 dark:bg-muted px-3 py-2 text-[13px] font-mono outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 focus-visible:border-blue-500 shadow-sm transition-all text-foreground placeholder:text-foreground/40"
+                    />
+                    <p className="text-[12px] text-muted-foreground">
+                      Supports `name | id`, `name = id`, or plain `id`.
+                    </p>
                   </div>
                 )}
                 {selectedType === 'ark' && codePlanPreset && (
@@ -1608,7 +1897,7 @@ function AddProviderDialog({
                                 </div>
                               </div>
 
-                              <div className="flex items-center justify-center gap-3 p-4 bg-[#eeece3] dark:bg-muted border border-black/5 dark:border-white/5 rounded-xl shadow-inner">
+                              <div className="flex items-center justify-center gap-3 p-4 bg-muted/70 dark:bg-muted border border-black/5 dark:border-white/5 rounded-xl shadow-inner">
                                 <code className="text-3xl font-mono tracking-[0.2em] font-bold text-foreground">
                                   {oauthData.userCode}
                                 </code>

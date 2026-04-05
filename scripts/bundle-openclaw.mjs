@@ -47,9 +47,21 @@ if (fs.existsSync(OUTPUT)) {
 }
 fs.mkdirSync(OUTPUT, { recursive: true });
 
+function shouldCopyBundledPath(srcPath) {
+  const base = path.basename(srcPath);
+  // Some nested extension deps carry editor metadata folders with restrictive
+  // file attributes that can cause fs.cpSync to abort on macOS.
+  if (base === '.vscode') return false;
+  return true;
+}
+
 // 3. Copy openclaw package itself to OUTPUT root
 echo`   Copying openclaw package...`;
-fs.cpSync(openclawReal, OUTPUT, { recursive: true, dereference: true });
+fs.cpSync(openclawReal, OUTPUT, {
+  recursive: true,
+  dereference: true,
+  filter: shouldCopyBundledPath,
+});
 
 // 4. Recursively collect ALL transitive dependencies via pnpm virtual store BFS
 //
@@ -189,6 +201,9 @@ echo`   Skipped ${skippedDevCount} dev-only package references`;
 const EXTRA_BUNDLED_PACKAGES = [
   '@whiskeysockets/baileys',   // WhatsApp channel (was a dep of old clawdbot, not openclaw)
 ];
+const REQUIRED_OPENCLAW_MODULES = [
+  '@whiskeysockets/baileys',
+];
 
 let extraCount = 0;
 for (const pkgName of EXTRA_BUNDLED_PACKAGES) {
@@ -259,7 +274,11 @@ for (const [realPath, pkgName] of collected) {
 
   try {
     fs.mkdirSync(normWin(path.dirname(dest)), { recursive: true });
-    fs.cpSync(normWin(realPath), normWin(dest), { recursive: true, dereference: true });
+    fs.cpSync(normWin(realPath), normWin(dest), {
+      recursive: true,
+      dereference: true,
+      filter: shouldCopyBundledPath,
+    });
     copiedCount++;
   } catch (err) {
     echo`   ⚠️  Skipped ${pkgName}: ${err.message}`;
@@ -735,6 +754,14 @@ function patchBundledRuntime(outputDir) {
 patchBrokenModules(outputNodeModules);
 patchBundledRuntime(OUTPUT);
 
+for (const moduleName of REQUIRED_OPENCLAW_MODULES) {
+  const pkgJson = path.join(outputNodeModules, ...moduleName.split('/'), 'package.json');
+  if (!fs.existsSync(pkgJson)) {
+    echo`❌ Required module missing from bundle: ${moduleName}`;
+    process.exit(1);
+  }
+}
+
 // 8. Verify the bundle
 const entryExists = fs.existsSync(path.join(OUTPUT, 'openclaw.mjs'));
 const distExists = fs.existsSync(path.join(OUTPUT, 'dist', 'entry.js'));
@@ -747,6 +774,7 @@ echo`   Duplicate versions skipped: ${skippedDupes}`;
 echo`   Total discovered: ${collected.size}`;
 echo`   openclaw.mjs: ${entryExists ? '✓' : '✗'}`;
 echo`   dist/entry.js: ${distExists ? '✓' : '✗'}`;
+echo`   required modules: ${REQUIRED_OPENCLAW_MODULES.join(', ')} ✓`;
 
 if (!entryExists || !distExists) {
   echo`❌ Bundle verification failed!`;

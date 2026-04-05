@@ -51,6 +51,7 @@ import { getRecentTokenUsageHistory } from '../utils/token-usage';
 import { getProviderService } from '../services/providers/provider-service';
 import {
   getOpenClawProviderKey,
+  syncAllProviderAuthToRuntime,
   syncDefaultProviderToRuntime,
   syncDeletedProviderApiKeyToRuntime,
   syncDeletedProviderToRuntime,
@@ -60,6 +61,7 @@ import {
 } from '../services/providers/provider-runtime-sync';
 import { validateApiKeyWithProvider } from '../services/providers/provider-validation';
 import { appUpdater } from './updater';
+import { readBrandOverrides } from '../utils/brand-overrides';
 import { registerHostApiProxyHandlers } from './ipc/host-api-proxy';
 import {
   isLaunchAtStartupKey,
@@ -1119,6 +1121,7 @@ function registerGatewayHandlers(
   // Start Gateway
   ipcMain.handle('gateway:start', async () => {
     try {
+      await syncAllProviderAuthToRuntime();
       await gatewayManager.start();
       return { success: true };
     } catch (error) {
@@ -1149,6 +1152,12 @@ function registerGatewayHandlers(
   // Gateway RPC call
   ipcMain.handle('gateway:rpc', async (_, method: string, params?: unknown, timeoutMs?: number) => {
     try {
+      // Self-heal runtime provider credentials before model inference calls.
+      // This avoids "No response received from the model" when Gateway was
+      // started manually and missed startup-time provider sync.
+      if (method === 'chat.send') {
+        await syncAllProviderAuthToRuntime();
+      }
       const result = await gatewayManager.rpc(method, params, timeoutMs);
       return { success: true, result };
     } catch (error) {
@@ -2102,6 +2111,11 @@ function registerAppHandlers(): void {
   // Get app name
   ipcMain.handle('app:name', () => {
     return app.getName();
+  });
+
+  // Get local brand/style overrides from userData.
+  ipcMain.handle('app:brand-overrides', () => {
+    return readBrandOverrides();
   });
 
   // Get app path

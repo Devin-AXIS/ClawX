@@ -37,6 +37,7 @@ import { acquireProcessInstanceFileLock } from './process-instance-lock';
 import { getSetting } from '../utils/store';
 import { ensureBuiltinSkillsInstalled, ensurePreinstalledSkillsInstalled } from '../utils/skill-config';
 import { ensureAllBundledPluginsInstalled } from '../utils/plugin-install';
+import { readBrandOverrides, resolveOverrideIconPath } from '../utils/brand-overrides';
 import { startHostApiServer } from '../api/server';
 import { HostEventBus } from '../api/event-bus';
 import { deviceOAuthManager } from '../utils/device-oauth';
@@ -47,9 +48,15 @@ import { syncAllProviderAuthToRuntime } from '../services/providers/provider-run
 const WINDOWS_APP_USER_MODEL_ID = 'app.clawx.desktop';
 const isE2EMode = process.env.CLAWX_E2E === '1';
 const requestedUserDataDir = process.env.CLAWX_USER_DATA_DIR?.trim();
+const LEGACY_USER_DATA_DIR_NAME = 'ClawX';
 
 if (isE2EMode && requestedUserDataDir) {
   app.setPath('userData', requestedUserDataDir);
+} else if (!requestedUserDataDir) {
+  // Keep using the historical ClawX userData directory for backward compatibility.
+  // Rebranding to Lumii changes Electron's default userData path, which would hide
+  // previously saved provider accounts/API keys and trigger send-time model errors.
+  app.setPath('userData', join(app.getPath('appData'), LEGACY_USER_DATA_DIR_NAME));
 }
 
 // Disable GPU hardware acceleration globally for maximum stability across
@@ -140,6 +147,14 @@ function getIconsDir(): string {
  */
 function getAppIcon(): Electron.NativeImage | undefined {
   if (process.platform === 'darwin') return undefined; // macOS uses the app bundle icon
+
+  const overrideIconPath = resolveOverrideIconPath();
+  if (overrideIconPath) {
+    const overrideIcon = nativeImage.createFromPath(overrideIconPath);
+    if (!overrideIcon.isEmpty()) {
+      return overrideIcon;
+    }
+  }
 
   const iconsDir = getIconsDir();
   const iconPath =
@@ -278,6 +293,10 @@ async function initialize(): Promise<void> {
   // Initialize logger first
   logger.init();
   logger.info('=== ClawX Application Starting ===');
+  const brandOverrides = readBrandOverrides();
+  if (brandOverrides.appName && brandOverrides.appName.trim()) {
+    app.setName(brandOverrides.appName.trim());
+  }
   logger.debug(
     `Runtime: platform=${process.platform}/${process.arch}, electron=${process.versions.electron}, node=${process.versions.node}, packaged=${app.isPackaged}, pid=${process.pid}, ppid=${process.ppid}`
   );

@@ -3,17 +3,21 @@
  * Handles automatic application updates using electron-updater
  *
  * Update providers are configured in electron-builder.yml (OSS primary, GitHub fallback).
- * For prerelease channels (alpha, beta), the feed URL is overridden at runtime
- * to point at the channel-specific OSS directory (e.g. /alpha/, /beta/).
+ * For stable channel we keep those providers untouched so fallback remains active.
+ * For prerelease channels (alpha, beta), we override feed URL at runtime to the
+ * channel-specific OSS directory (e.g. /alpha/, /beta/).
  */
 import { autoUpdater, UpdateInfo, ProgressInfo, UpdateDownloadedEvent } from 'electron-updater';
-import { BrowserWindow, app, ipcMain } from 'electron';
+import { BrowserWindow, app, ipcMain, shell } from 'electron';
 import { logger } from '../utils/logger';
 import { EventEmitter } from 'events';
 import { setQuitting } from './app-state';
 
 /** Base CDN URL (without trailing channel path) */
 const OSS_BASE_URL = 'https://oss.intelli-spectrum.com';
+const CHECK_TIMEOUT_MS = 30_000;
+const DOWNLOAD_TIMEOUT_MS = 180_000;
+const RELEASE_LATEST_URL = 'https://github.com/ValueCell-ai/ClawX/releases/latest';
 
 export interface UpdateStatus {
   status: 'idle' | 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
@@ -41,11 +45,32 @@ function detectChannel(version: string): string {
   return match ? match[1] : 'latest';
 }
 
+function normalizeUpdaterErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  const lowered = raw.toLowerCase();
+  const signatureFailure = lowered.includes('code signature')
+    && lowered.includes('did not pass validation');
+  if (signatureFailure) {
+    return [
+      'Update package signature validation failed on macOS.',
+      'Please install the latest release manually once, then retry in-app updates.',
+      `Download: ${RELEASE_LATEST_URL}`,
+    ].join(' ');
+  }
+  return raw;
+}
+
 export class AppUpdater extends EventEmitter {
   private mainWindow: BrowserWindow | null = null;
   private status: UpdateStatus = { status: 'idle' };
   private autoInstallTimer: NodeJS.Timeout | null = null;
   private autoInstallCountdown = 0;
+  private readonly resolvedVersion = app.getVersion();
+  private readonly resolvedChannel = detectChannel(this.resolvedVersion);
+  private readonly usingCustomFeed = this.resolvedChannel !== 'latest';
+  private readonly resolvedFeedUrl = `${OSS_BASE_URL}/${this.resolvedChannel}`;
+  private lastEvent = 'init';
+  private lastEventAt = Date.now();
 
   /** Delay (in seconds) before auto-installing a downloaded update. */
   private static readonly AUTO_INSTALL_DELAY_SECONDS = 5;
@@ -71,21 +96,22 @@ export class AppUpdater extends EventEmitter {
 
     // Override feed URL for prerelease channels so that
     // alpha -> /alpha/alpha-mac.yml, beta -> /beta/beta-mac.yml, etc.
-    const version = app.getVersion();
-    const channel = detectChannel(version);
-    const feedUrl = `${OSS_BASE_URL}/${channel}`;
-
-    logger.info(`[Updater] Version: ${version}, channel: ${channel}, feedUrl: ${feedUrl}`);
+    logger.info(
+      `[Updater] Version: ${this.resolvedVersion}, channel: ${this.resolvedChannel}, customFeed=${this.usingCustomFeed ? this.resolvedFeedUrl : 'no'}`,
+    );
 
     // Set channel so electron-updater requests the correct yml filename.
     // e.g. channel "alpha" → requests alpha-mac.yml, channel "latest" → requests latest-mac.yml
-    autoUpdater.channel = channel;
+    autoUpdater.channel = this.resolvedChannel;
 
-    autoUpdater.setFeedURL({
-      provider: 'generic',
-      url: feedUrl,
-      useMultipleRangeRequest: false,
-    });
+    // Keep app-update.yml providers for stable releases, so GitHub fallback still works.
+    if (this.usingCustomFeed) {
+      autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: this.resolvedFeedUrl,
+        useMultipleRangeRequest: false,
+      });
+    }
 
     this.setupListeners();
   }
@@ -109,26 +135,31 @@ export class AppUpdater extends EventEmitter {
    */
   private setupListeners(): void {
     autoUpdater.on('checking-for-update', () => {
+      this.recordEvent('checking-for-update');
       this.updateStatus({ status: 'checking' });
       this.emit('checking-for-update');
     });
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
+      this.recordEvent('update-available');
       this.updateStatus({ status: 'available', info });
       this.emit('update-available', info);
     });
 
     autoUpdater.on('update-not-available', (info: UpdateInfo) => {
+      this.recordEvent('update-not-available');
       this.updateStatus({ status: 'not-available', info });
       this.emit('update-not-available', info);
     });
 
     autoUpdater.on('download-progress', (progress: ProgressInfo) => {
+      this.recordEvent('download-progress');
       this.updateStatus({ status: 'downloading', progress });
       this.emit('download-progress', progress);
     });
 
     autoUpdater.on('update-downloaded', (event: UpdateDownloadedEvent) => {
+      this.recordEvent('update-downloaded');
       this.updateStatus({ status: 'downloaded', info: event });
       this.emit('update-downloaded', event);
 
@@ -138,9 +169,15 @@ export class AppUpdater extends EventEmitter {
     });
 
     autoUpdater.on('error', (error: Error) => {
-      this.updateStatus({ status: 'error', error: error.message });
+      this.recordEvent('error');
+      this.updateStatus({ status: 'error', error: normalizeUpdaterErrorMessage(error) });
       this.emit('error', error);
     });
+  }
+
+  private recordEvent(name: string): void {
+    this.lastEvent = name;
+    this.lastEventAt = Date.now();
   }
 
   /**
@@ -175,7 +212,10 @@ export class AppUpdater extends EventEmitter {
    */
   async checkForUpdates(): Promise<UpdateInfo | null> {
     try {
-      const result = await autoUpdater.checkForUpdates();
+      const result = await Promise.race([
+        autoUpdater.checkForUpdates(),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), CHECK_TIMEOUT_MS)),
+      ]);
 
       // In dev mode (app not packaged), autoUpdater silently returns null
       // without emitting ANY events (not even checking-for-update).
@@ -183,7 +223,9 @@ export class AppUpdater extends EventEmitter {
       if (result == null) {
         this.updateStatus({
           status: 'error',
-          error: 'Update check skipped (dev mode – app is not packaged)',
+          error: app.isPackaged
+            ? 'Update check timed out'
+            : 'Update check skipped (dev mode – app is not packaged)',
         });
         return null;
       }
@@ -196,7 +238,7 @@ export class AppUpdater extends EventEmitter {
       return result.updateInfo || null;
     } catch (error) {
       logger.error('[Updater] Check for updates failed:', error);
-      this.updateStatus({ status: 'error', error: (error as Error).message || String(error) });
+      this.updateStatus({ status: 'error', error: normalizeUpdaterErrorMessage(error) });
       throw error;
     }
   }
@@ -206,9 +248,17 @@ export class AppUpdater extends EventEmitter {
    */
   async downloadUpdate(): Promise<void> {
     try {
-      await autoUpdater.downloadUpdate();
+      const result = await Promise.race([
+        autoUpdater.downloadUpdate().then(() => 'ok' as const),
+        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), DOWNLOAD_TIMEOUT_MS)),
+      ]);
+      if (result === 'timeout') {
+        this.updateStatus({ status: 'error', error: 'Update download timed out' });
+        throw new Error('Update download timed out');
+      }
     } catch (error) {
       logger.error('[Updater] Download update failed:', error);
+      this.updateStatus({ status: 'error', error: normalizeUpdaterErrorMessage(error) });
       throw error;
     }
   }
@@ -266,7 +316,12 @@ export class AppUpdater extends EventEmitter {
    * Set update channel (stable, beta, dev)
    */
   setChannel(channel: 'stable' | 'beta' | 'dev'): void {
-    autoUpdater.channel = channel;
+    const mapped = channel === 'stable'
+      ? 'latest'
+      : channel === 'dev'
+        ? 'alpha'
+        : channel;
+    autoUpdater.channel = mapped;
   }
 
   /**
@@ -280,7 +335,29 @@ export class AppUpdater extends EventEmitter {
    * Get current version
    */
   getCurrentVersion(): string {
-    return app.getVersion();
+    return this.resolvedVersion;
+  }
+
+  getDiagnostics(): {
+    appVersion: string;
+    channel: string;
+    isPackaged: boolean;
+    customFeedEnabled: boolean;
+    customFeedUrl: string | null;
+    currentStatus: UpdateStatus;
+    lastEvent: string;
+    lastEventAt: string;
+  } {
+    return {
+      appVersion: this.resolvedVersion,
+      channel: this.resolvedChannel,
+      isPackaged: app.isPackaged,
+      customFeedEnabled: this.usingCustomFeed,
+      customFeedUrl: this.usingCustomFeed ? this.resolvedFeedUrl : null,
+      currentStatus: this.status,
+      lastEvent: this.lastEvent,
+      lastEventAt: new Date(this.lastEventAt).toISOString(),
+    };
   }
 }
 
@@ -301,6 +378,11 @@ export function registerUpdateHandlers(
   // Get current version
   ipcMain.handle('update:version', () => {
     return updater.getCurrentVersion();
+  });
+
+  // Diagnostics for troubleshooting update flow from renderer.
+  ipcMain.handle('update:diagnostics', () => {
+    return updater.getDiagnostics();
   });
 
   // Check for updates – always return final status so the renderer
@@ -345,6 +427,12 @@ export function registerUpdateHandlers(
   // Cancel pending auto-install countdown
   ipcMain.handle('update:cancelAutoInstall', () => {
     updater.cancelAutoInstall();
+    return { success: true };
+  });
+
+  // Open latest release page as manual update fallback.
+  ipcMain.handle('update:openLatestRelease', async () => {
+    await shell.openExternal(RELEASE_LATEST_URL);
     return { success: true };
   });
 

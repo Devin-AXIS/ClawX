@@ -117,22 +117,29 @@ async function launchClawXElectron(
   const electronEnv = process.platform === 'linux'
     ? { ELECTRON_DISABLE_SANDBOX: '1' }
     : {};
+  const launchEnv: Record<string, string> = {
+    ...process.env as Record<string, string>,
+    ...electronEnv,
+    HOME: homeDir,
+    USERPROFILE: homeDir,
+    APPDATA: join(homeDir, 'AppData', 'Roaming'),
+    LOCALAPPDATA: join(homeDir, 'AppData', 'Local'),
+    XDG_CONFIG_HOME: join(homeDir, '.config'),
+    CLAWX_E2E: '1',
+    CLAWX_USER_DATA_DIR: userDataDir,
+    ...(options.skipSetup ? { CLAWX_E2E_SKIP_SETUP: '1' } : {}),
+    CLAWX_PORT_CLAWX_HOST_API: String(hostApiPort),
+  };
+  // Ensure Electron runs in app mode, not Node mode.
+  delete launchEnv.ELECTRON_RUN_AS_NODE;
+
   return await electron.launch({
     executablePath: electronBinaryPath,
     args: [electronEntry],
-    env: {
-      ...process.env,
-      ...electronEnv,
-      HOME: homeDir,
-      USERPROFILE: homeDir,
-      APPDATA: join(homeDir, 'AppData', 'Roaming'),
-      LOCALAPPDATA: join(homeDir, 'AppData', 'Local'),
-      XDG_CONFIG_HOME: join(homeDir, '.config'),
-      CLAWX_E2E: '1',
-      CLAWX_USER_DATA_DIR: userDataDir,
-      ...(options.skipSetup ? { CLAWX_E2E_SKIP_SETUP: '1' } : {}),
-      CLAWX_PORT_CLAWX_HOST_API: String(hostApiPort),
-    },
+    env: launchEnv,
+    // Playwright injects this flag by default, but Electron 40 in this setup
+    // rejects it during process bootstrap ("bad option: --remote-debugging-port=0").
+    ignoreDefaultArgs: ['--remote-debugging-port=0'],
     timeout: 90_000,
   });
 }

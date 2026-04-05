@@ -9,6 +9,7 @@ export const PROVIDER_TYPES = [
   'minimax-portal',
   'minimax-portal-cn',
   'modelstudio',
+  'ipollo',
   'ollama',
   'custom',
 ] as const;
@@ -24,6 +25,7 @@ export const BUILTIN_PROVIDER_TYPES = [
   'minimax-portal',
   'minimax-portal-cn',
   'modelstudio',
+  'ipollo',
   'ollama',
 ] as const;
 
@@ -130,6 +132,7 @@ export interface ProviderAccount {
     email?: string;
     resourceUrl?: string;
     customModels?: string[];
+    customModelEntries?: Array<{ id: string; name: string }>;
   };
   createdAt: string;
   updatedAt: string;

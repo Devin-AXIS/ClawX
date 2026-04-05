@@ -40,6 +40,7 @@ const PLUGINS = [
   { npmName: '@wecom/wecom-openclaw-plugin', pluginId: 'wecom' },
   { npmName: '@larksuite/openclaw-lark', pluginId: 'feishu-openclaw-plugin' },
   { npmName: '@tencent-weixin/openclaw-weixin', pluginId: 'openclaw-weixin' },
+  { localPath: path.resolve(ROOT, '..', 'openclaw-lumii-plugin'), pluginId: 'openclaw-lumii' },
 ];
 
 function getVirtualStoreNodeModules(realPkgPath) {
@@ -82,16 +83,23 @@ function listPackages(nodeModulesDir) {
   return result;
 }
 
-function bundleOnePlugin({ npmName, pluginId }) {
-  const pkgPath = path.join(NODE_MODULES, ...npmName.split('/'));
-  if (!fs.existsSync(pkgPath)) {
-    throw new Error(`Missing dependency "${npmName}". Run pnpm install first.`);
+function bundleOnePlugin({ npmName, localPath, pluginId }) {
+  let realPluginPath = '';
+  if (localPath) {
+    if (!fs.existsSync(localPath)) {
+      throw new Error(`Missing local plugin source "${localPath}".`);
+    }
+    realPluginPath = fs.realpathSync(localPath);
+  } else {
+    const pkgPath = path.join(NODE_MODULES, ...npmName.split('/'));
+    if (!fs.existsSync(pkgPath)) {
+      throw new Error(`Missing dependency "${npmName}". Run pnpm install first.`);
+    }
+    realPluginPath = fs.realpathSync(pkgPath);
   }
-
-  const realPluginPath = fs.realpathSync(pkgPath);
   const outputDir = path.join(OUTPUT_ROOT, pluginId);
 
-  echo`📦 Bundling plugin ${npmName} -> ${outputDir}`;
+  echo`📦 Bundling plugin ${localPath || npmName} -> ${outputDir}`;
 
   if (fs.existsSync(outputDir)) {
     fs.rmSync(outputDir, { recursive: true, force: true });
@@ -100,6 +108,16 @@ function bundleOnePlugin({ npmName, pluginId }) {
 
   // 1) Copy plugin package itself
   fs.cpSync(realPluginPath, outputDir, { recursive: true, dereference: true });
+
+  // Local plugins are copied as-is (dist should already be built).
+  if (localPath) {
+    const manifestPath = path.join(outputDir, 'openclaw.plugin.json');
+    if (!fs.existsSync(manifestPath)) {
+      throw new Error(`Missing openclaw.plugin.json in local plugin output: ${pluginId}`);
+    }
+    echo`   ✅ ${pluginId}: copied local plugin`;
+    return;
+  }
 
   // 2) Collect transitive deps from pnpm virtual store
   const collected = new Map();
@@ -235,6 +253,9 @@ function patchPluginId(pluginDir, expectedId) {
 }
 
 echo`📦 Bundling OpenClaw plugin mirrors...`;
+// Ensure stale plugin directories from previous builds do not leak into
+// the next package output.
+fs.rmSync(OUTPUT_ROOT, { recursive: true, force: true });
 fs.mkdirSync(OUTPUT_ROOT, { recursive: true });
 
 for (const plugin of PLUGINS) {

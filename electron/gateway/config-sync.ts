@@ -51,6 +51,7 @@ const CHANNEL_PLUGIN_MAP: Record<string, { dirName: string; npmName: string }> =
   feishu: { dirName: 'feishu-openclaw-plugin', npmName: '@larksuite/openclaw-lark' },
 
   'openclaw-weixin': { dirName: 'openclaw-weixin', npmName: '@tencent-weixin/openclaw-weixin' },
+  'openclaw-lumii': { dirName: 'openclaw-lumii', npmName: '@lumii/openclaw-lumii' },
 };
 
 /**

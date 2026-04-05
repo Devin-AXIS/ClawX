@@ -24,6 +24,7 @@ import {
 import {
   ensureDingTalkPluginInstalled,
   ensureFeishuPluginInstalled,
+  ensureLumiiPluginInstalled,
   ensureWeChatPluginInstalled,
   ensureWeComPluginInstalled,
 } from '../../utils/plugin-install';
@@ -33,13 +34,21 @@ import {
   type ChannelRuntimeAccountSnapshot,
 } from '../../utils/channel-status';
 import {
+  OPENCLAW_LUMII_CHANNEL_TYPE,
   OPENCLAW_WECHAT_CHANNEL_TYPE,
+  UI_LUMII_CHANNEL_TYPE,
   UI_WECHAT_CHANNEL_TYPE,
   buildQrChannelEventName,
   toOpenClawChannelType,
   toUiChannelType,
 } from '../../utils/channel-alias';
 import { getOpenClawConfigDir } from '../../utils/paths';
+import {
+  cancelLumiiLoginSession,
+  saveLumiiAccountState,
+  startLumiiLoginSession,
+  waitForLumiiLoginSession,
+} from '../../utils/lumii-login';
 import {
   cancelWeChatLoginSession,
   saveWeChatAccountState,
@@ -77,6 +86,7 @@ interface WebLoginStartResult {
   qrcodeUrl?: string;
   message?: string;
   sessionKey?: string;
+  pollable?: boolean;
 }
 
 function resolveStoredChannelType(channelType: string): string {
@@ -120,6 +130,11 @@ async function startWeChatQrLogin(ctx: HostApiContext, accountId?: string): Prom
     ...(accountId ? { accountId } : {}),
     force: true,
   });
+}
+
+async function startLumiiQrLogin(ctx: HostApiContext): Promise<WebLoginStartResult> {
+  void ctx;
+  return await startLumiiLoginSession({ force: true });
 }
 
 async function awaitWeChatQrLogin(
@@ -183,6 +198,68 @@ async function awaitWeChatQrLogin(
   }
 }
 
+async function awaitLumiiQrLogin(
+  ctx: HostApiContext,
+  sessionKey: string,
+  loginKey: string,
+): Promise<void> {
+  try {
+    const result = await waitForLumiiLoginSession({
+      sessionKey,
+      timeoutMs: WECHAT_QR_TIMEOUT_MS,
+      onQrRefresh: async ({ qrcodeUrl }) => {
+        if (!isActiveQrLogin(loginKey, sessionKey)) {
+          return;
+        }
+        emitChannelEvent(ctx, UI_LUMII_CHANNEL_TYPE, 'qr', {
+          qr: qrcodeUrl,
+          raw: qrcodeUrl,
+          sessionKey,
+        });
+      },
+    });
+
+    if (!isActiveQrLogin(loginKey, sessionKey)) {
+      return;
+    }
+
+    if (!result.connected || !result.accountId || !result.token) {
+      emitChannelEvent(ctx, UI_LUMII_CHANNEL_TYPE, 'error', result.message || 'Lumii login did not complete');
+      return;
+    }
+
+    const normalizedAccountId = await saveLumiiAccountState(result.accountId, {
+      token: result.token,
+      refreshToken: result.refreshToken,
+      baseUrl: result.baseUrl,
+      userId: result.userId,
+    });
+    await saveChannelConfig(UI_LUMII_CHANNEL_TYPE, { enabled: true }, normalizedAccountId);
+    await ensureScopedChannelBinding(UI_LUMII_CHANNEL_TYPE, normalizedAccountId);
+    scheduleGatewayChannelSaveRefresh(ctx, OPENCLAW_LUMII_CHANNEL_TYPE, `lumii:loginSuccess:${normalizedAccountId}`);
+
+    if (!isActiveQrLogin(loginKey, sessionKey)) {
+      return;
+    }
+
+    emitChannelEvent(ctx, UI_LUMII_CHANNEL_TYPE, 'success', {
+      accountId: normalizedAccountId,
+      rawAccountId: result.accountId,
+      message: result.message,
+    });
+  } catch (error) {
+    if (!isActiveQrLogin(loginKey, sessionKey)) {
+      return;
+    }
+    emitChannelEvent(ctx, UI_LUMII_CHANNEL_TYPE, 'error', String(error));
+  } finally {
+    if (isActiveQrLogin(loginKey, sessionKey)) {
+      activeQrLogins.delete(loginKey);
+    }
+    await cancelLumiiLoginSession(sessionKey);
+  }
+}
+
 function scheduleGatewayChannelRestart(ctx: HostApiContext, reason: string): void {
   if (ctx.gatewayManager.getStatus().state === 'stopped') {
     return;
@@ -198,7 +275,7 @@ function scheduleGatewayChannelRestart(ctx: HostApiContext, reason: string): voi
 // channel type.  All channel config saves must trigger a full Gateway process
 // restart to ensure the channel adapter properly initializes with the new config.
 const FORCE_RESTART_CHANNELS = new Set([
-  'dingtalk', 'wecom', 'whatsapp', 'feishu', 'qqbot', OPENCLAW_WECHAT_CHANNEL_TYPE,
+  'dingtalk', 'wecom', 'whatsapp', 'feishu', 'qqbot', OPENCLAW_WECHAT_CHANNEL_TYPE, OPENCLAW_LUMII_CHANNEL_TYPE,
   'discord', 'telegram', 'signal', 'imessage', 'matrix', 'line', 'msteams', 'googlechat', 'mattermost',
 ]);
 
@@ -1179,6 +1256,50 @@ export async function handleChannelRoutes(
     return true;
   }
 
+  if (url.pathname === '/api/channels/lumii/start' && req.method === 'POST') {
+    try {
+      const installResult = await ensureLumiiPluginInstalled();
+      if (!installResult.installed) {
+        sendJson(res, 500, { success: false, error: installResult.warning || 'Lumii plugin install failed' });
+        return true;
+      }
+
+      const startResult = await startLumiiQrLogin(ctx);
+      if (!startResult.qrcodeUrl || !startResult.sessionKey) {
+        throw new Error(startResult.message || 'Failed to generate Lumii QR code');
+      }
+
+      const loginKey = setActiveQrLogin(UI_LUMII_CHANNEL_TYPE, startResult.sessionKey);
+      emitChannelEvent(ctx, UI_LUMII_CHANNEL_TYPE, 'qr', {
+        qr: startResult.qrcodeUrl,
+        raw: startResult.qrcodeUrl,
+        sessionKey: startResult.sessionKey,
+      });
+      if (startResult.pollable !== false) {
+        void awaitLumiiQrLogin(ctx, startResult.sessionKey, loginKey);
+      }
+      sendJson(res, 200, { success: true });
+    } catch (error) {
+      sendJson(res, 500, { success: false, error: String(error) });
+    }
+    return true;
+  }
+
+  if (url.pathname === '/api/channels/lumii/cancel' && req.method === 'POST') {
+    try {
+      const loginKey = buildQrLoginKey(UI_LUMII_CHANNEL_TYPE);
+      const sessionKey = activeQrLogins.get(loginKey);
+      clearActiveQrLogin(UI_LUMII_CHANNEL_TYPE);
+      if (sessionKey) {
+        await cancelLumiiLoginSession(sessionKey);
+      }
+      sendJson(res, 200, { success: true });
+    } catch (error) {
+      sendJson(res, 500, { success: false, error: String(error) });
+    }
+    return true;
+  }
+
   if (url.pathname === '/api/channels/config' && req.method === 'POST') {
     try {
       const body = await parseJsonBody<{ channelType: string; config: Record<string, unknown>; accountId?: string }>(req);
@@ -1209,6 +1330,13 @@ export async function handleChannelRoutes(
         const installResult = await ensureWeChatPluginInstalled();
         if (!installResult.installed) {
           sendJson(res, 500, { success: false, error: installResult.warning || 'WeChat plugin install failed' });
+          return true;
+        }
+      }
+      if (storedChannelType === OPENCLAW_LUMII_CHANNEL_TYPE) {
+        const installResult = await ensureLumiiPluginInstalled();
+        if (!installResult.installed) {
+          sendJson(res, 500, { success: false, error: installResult.warning || 'Lumii plugin install failed' });
           return true;
         }
       }

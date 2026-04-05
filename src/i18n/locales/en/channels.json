@@ -169,6 +169,16 @@
                 "You can repeat the QR flow later to add another WeChat account or reconnect an existing one"
             ]
         },
+        "lumii": {
+            "description": "Connect Lumii by scanning a QR code (WeChat-like bind flow)",
+            "docsUrl": "https://github.com/Devin-AXIS/ClawX/blob/main/docs/LUMII_QR_PLUGIN_ARCHITECTURE.md",
+            "instructions": [
+                "Click Generate QR Code to install and enable the Lumii plugin in OpenClaw",
+                "Open Lumii and scan the QR code below",
+                "Confirm the bind action in Lumii to finish account linking",
+                "You can run this flow again any time to reconnect or bind another account"
+            ]
+        },
         "dingtalk": {
             "description": "Connect DingTalk via OpenClaw channel plugin (Stream mode)",
             "docsUrl": "https://icnnp7d0dymg.feishu.cn/wiki/Y5eNwiSiZidkLskrwtJc1rUln0b#doxcnDgA78n43DbkiQjI1OqUA7b",

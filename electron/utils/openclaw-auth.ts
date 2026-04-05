@@ -693,6 +693,7 @@ type ProviderEntryBuildOptions = {
   headers?: Record<string, string>;
   authHeader?: boolean;
   modelIds?: string[];
+  modelEntries?: Array<{ id: string; name: string }>;
   includeRegistryModels?: boolean;
   mergeExistingModels?: boolean;
 };
@@ -750,7 +751,9 @@ function upsertOpenClawProviderEntry(
   const registryModels = options.includeRegistryModels
     ? ((getProviderConfig(provider)?.models ?? []).map((m) => ({ ...m })) as Array<Record<string, unknown>>)
     : [];
-  const runtimeModels = (options.modelIds ?? []).map((id) => ({ id, name: id }));
+  const runtimeModels = options.modelEntries
+    ? options.modelEntries.map((entry) => ({ id: entry.id, name: entry.name || entry.id }))
+    : (options.modelIds ?? []).map((id) => ({ id, name: id }));
 
   const nextProvider: Record<string, unknown> = {
     ...existingProvider,
@@ -814,19 +817,35 @@ function ensureMoonshotKimiWebSearchCnBaseUrl(config: Record<string, unknown>, p
 export async function syncProviderConfigToOpenClaw(
   provider: string,
   modelId: string | undefined,
-  override: RuntimeProviderConfigOverride
+  override: RuntimeProviderConfigOverride,
+  extraModelEntries: Array<{ id: string; name?: string }> = [],
 ): Promise<void> {
   return withConfigLock(async () => {
     const config = await readOpenClawJson();
     ensureMoonshotKimiWebSearchCnBaseUrl(config, provider);
 
     if (override.baseUrl && override.api) {
+      const mergedModelEntries = (() => {
+        const combined = [
+          ...(modelId?.trim() ? [{ id: modelId.trim(), name: modelId.trim() }] : []),
+          ...extraModelEntries,
+        ];
+        const seen = new Set<string>();
+        const normalized: Array<{ id: string; name: string }> = [];
+        for (const entry of combined) {
+          const id = (entry?.id || '').trim();
+          if (!id || seen.has(id)) continue;
+          seen.add(id);
+          normalized.push({ id, name: (entry?.name || '').trim() || id });
+        }
+        return normalized;
+      })();
       upsertOpenClawProviderEntry(config, provider, {
         baseUrl: override.baseUrl,
         api: override.api,
         apiKeyEnv: override.apiKeyEnv,
         headers: override.headers,
-        modelIds: modelId ? [modelId] : [],
+        modelEntries: mergedModelEntries,
       });
     }
 

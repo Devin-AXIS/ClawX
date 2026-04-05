@@ -13,7 +13,9 @@ import * as logger from './logger';
 import { proxyAwareFetch } from './proxy-fetch';
 import { withConfigLock } from './config-mutex';
 import {
+    OPENCLAW_LUMII_CHANNEL_TYPE,
     OPENCLAW_WECHAT_CHANNEL_TYPE,
+    isLumiiChannelType,
     isWechatChannelType,
     normalizeOpenClawAccountId,
     toOpenClawChannelType,
@@ -24,6 +26,7 @@ const CONFIG_FILE = join(OPENCLAW_DIR, 'openclaw.json');
 const WECOM_PLUGIN_ID = 'wecom';
 // Note: QQBot is a built-in channel since OpenClaw 3.31 — no plugin ID needed.
 const WECHAT_PLUGIN_ID = OPENCLAW_WECHAT_CHANNEL_TYPE;
+const LUMII_PLUGIN_ID = OPENCLAW_LUMII_CHANNEL_TYPE;
 const FEISHU_PLUGIN_ID_CANDIDATES = ['openclaw-lark', 'feishu-openclaw-plugin'] as const;
 const DEFAULT_ACCOUNT_ID = 'default';
 const CHANNEL_TOP_LEVEL_KEYS_TO_KEEP = new Set(['accounts', 'defaultAccount', 'enabled']);
@@ -32,6 +35,7 @@ const WECHAT_ACCOUNT_INDEX_FILE = join(WECHAT_STATE_DIR, 'accounts.json');
 const WECHAT_ACCOUNTS_DIR = join(WECHAT_STATE_DIR, 'accounts');
 const LEGACY_WECHAT_CREDENTIALS_DIR = join(OPENCLAW_DIR, 'credentials', WECHAT_PLUGIN_ID);
 const LEGACY_WECHAT_SYNC_DIR = join(OPENCLAW_DIR, 'agents', 'default', 'sessions', '.openclaw-weixin-sync');
+const LUMII_STATE_DIR = join(OPENCLAW_DIR, LUMII_PLUGIN_ID);
 
 // Channels that are managed as plugins (config goes under plugins.entries, not channels)
 const PLUGIN_CHANNELS: string[] = [];
@@ -158,6 +162,10 @@ async function deleteWeChatState(): Promise<void> {
     await rm(WECHAT_STATE_DIR, { recursive: true, force: true });
     await rm(LEGACY_WECHAT_CREDENTIALS_DIR, { recursive: true, force: true });
     await rm(LEGACY_WECHAT_SYNC_DIR, { recursive: true, force: true });
+}
+
+async function deleteLumiiState(): Promise<void> {
+    await rm(LUMII_STATE_DIR, { recursive: true, force: true });
 }
 
 function removePluginRegistration(currentConfig: OpenClawConfig, pluginId: string): boolean {
@@ -494,6 +502,35 @@ async function ensurePluginAllowlist(currentConfig: OpenClawConfig, channelType:
             currentConfig.plugins.entries[WECHAT_PLUGIN_ID] = {};
         }
         currentConfig.plugins.entries[WECHAT_PLUGIN_ID].enabled = true;
+    }
+
+    if (channelType === LUMII_PLUGIN_ID) {
+        if (!currentConfig.plugins) {
+            currentConfig.plugins = {
+                allow: [LUMII_PLUGIN_ID],
+                enabled: true,
+                entries: {
+                    [LUMII_PLUGIN_ID]: { enabled: true },
+                },
+            };
+            return;
+        }
+
+        currentConfig.plugins.enabled = true;
+        const allow = Array.isArray(currentConfig.plugins.allow)
+            ? currentConfig.plugins.allow as string[]
+            : [];
+        if (!allow.includes(LUMII_PLUGIN_ID)) {
+            currentConfig.plugins.allow = [...allow, LUMII_PLUGIN_ID];
+        }
+
+        if (!currentConfig.plugins.entries) {
+            currentConfig.plugins.entries = {};
+        }
+        if (!currentConfig.plugins.entries[LUMII_PLUGIN_ID]) {
+            currentConfig.plugins.entries[LUMII_PLUGIN_ID] = {};
+        }
+        currentConfig.plugins.entries[LUMII_PLUGIN_ID].enabled = true;
     }
 }
 
@@ -878,6 +915,9 @@ export async function deleteChannelAccountConfig(channelType: string, accountId:
             if (isWechatChannelType(resolvedChannelType)) {
                 removePluginRegistration(currentConfig, WECHAT_PLUGIN_ID);
             }
+            if (isLumiiChannelType(resolvedChannelType)) {
+                removePluginRegistration(currentConfig, LUMII_PLUGIN_ID);
+            }
         } else {
             if (channelSection.defaultAccount === accountId) {
                 const nextDefaultAccountId = Object.keys(accounts).sort((a, b) => {
@@ -924,10 +964,16 @@ export async function deleteChannelConfig(channelType: string): Promise<void> {
             if (isWechatChannelType(resolvedChannelType)) {
                 removePluginRegistration(currentConfig, WECHAT_PLUGIN_ID);
             }
+            if (isLumiiChannelType(resolvedChannelType)) {
+                removePluginRegistration(currentConfig, LUMII_PLUGIN_ID);
+            }
             syncBuiltinChannelsWithPluginAllowlist(currentConfig);
             await writeOpenClawConfig(currentConfig);
             if (isWechatChannelType(resolvedChannelType)) {
                 await deleteWeChatState();
+            }
+            if (isLumiiChannelType(resolvedChannelType)) {
+                await deleteLumiiState();
             }
             console.log(`Deleted channel config for ${resolvedChannelType}`);
         } else if (PLUGIN_CHANNELS.includes(resolvedChannelType)) {
@@ -942,6 +988,11 @@ export async function deleteChannelConfig(channelType: string): Promise<void> {
             syncBuiltinChannelsWithPluginAllowlist(currentConfig);
             await writeOpenClawConfig(currentConfig);
             await deleteWeChatState();
+        } else if (isLumiiChannelType(resolvedChannelType)) {
+            removePluginRegistration(currentConfig, LUMII_PLUGIN_ID);
+            syncBuiltinChannelsWithPluginAllowlist(currentConfig);
+            await writeOpenClawConfig(currentConfig);
+            await deleteLumiiState();
         }
 
         if (resolvedChannelType === 'whatsapp') {
@@ -1156,6 +1207,13 @@ export async function setChannelEnabled(channelType: string, enabled: boolean): 
                 await ensurePluginAllowlist(currentConfig, WECHAT_PLUGIN_ID);
             } else {
                 removePluginRegistration(currentConfig, WECHAT_PLUGIN_ID);
+            }
+        }
+        if (isLumiiChannelType(resolvedChannelType)) {
+            if (enabled) {
+                await ensurePluginAllowlist(currentConfig, LUMII_PLUGIN_ID);
+            } else {
+                removePluginRegistration(currentConfig, LUMII_PLUGIN_ID);
             }
         }
 

@@ -525,6 +525,39 @@ function bundlePlugin(nodeModulesRoot, npmName, destDir) {
   return true;
 }
 
+const REQUIRED_OPENCLAW_MODULES = [
+  '@whiskeysockets/baileys',
+];
+
+function ensureRequiredOpenClawModules({ srcNodeModulesDir, destNodeModulesDir, workspaceNodeModulesDir }) {
+  for (const moduleName of REQUIRED_OPENCLAW_MODULES) {
+    const destPkg = join(destNodeModulesDir, ...moduleName.split('/'));
+    const destPkgJson = join(destPkg, 'package.json');
+    const sourceCandidates = [
+      join(srcNodeModulesDir, ...moduleName.split('/')),
+      join(workspaceNodeModulesDir, ...moduleName.split('/')),
+    ];
+    const source = sourceCandidates.find((candidate) => existsSync(normWin(join(candidate, 'package.json'))));
+
+    if (!source) {
+      throw new Error(`[after-pack] Required module ${moduleName} not found in source candidates`);
+    }
+
+    // Always force-copy required modules at the very end of packaging to avoid
+    // edge cases where earlier cleanup/merge stages leave an empty scope folder.
+    if (existsSync(normWin(destPkg))) {
+      rmSync(normWin(destPkg), { recursive: true, force: true });
+    }
+    mkdirSync(normWin(dirname(destPkg)), { recursive: true });
+    cpSync(normWin(realpathSync(normWin(source))), normWin(destPkg), { recursive: true, dereference: true });
+
+    if (!existsSync(normWin(destPkgJson))) {
+      throw new Error(`[after-pack] Failed to restore required module ${moduleName} into packaged openclaw`);
+    }
+    console.log(`[after-pack] ✅ Forced required module copy: ${moduleName}`);
+  }
+}
+
 // ── Main hook ────────────────────────────────────────────────────────────────
 
 exports.default = async function afterPack(context) {
@@ -562,6 +595,11 @@ exports.default = async function afterPack(context) {
   console.log(`[after-pack] Copying ${depCount} openclaw dependencies to ${dest} ...`);
   cpSync(src, dest, { recursive: true });
   console.log('[after-pack] ✅ openclaw node_modules copied.');
+  ensureRequiredOpenClawModules({
+    srcNodeModulesDir: src,
+    destNodeModulesDir: dest,
+    workspaceNodeModulesDir: nodeModulesRoot,
+  });
 
   // Patch broken modules whose CJS transpiled output sets module.exports = undefined,
   // causing TypeError in Node.js 22+ ESM interop.
@@ -577,13 +615,34 @@ exports.default = async function afterPack(context) {
     { npmName: '@wecom/wecom-openclaw-plugin', pluginId: 'wecom' },
     { npmName: '@larksuite/openclaw-lark', pluginId: 'feishu-openclaw-plugin' },
     { npmName: '@tencent-weixin/openclaw-weixin', pluginId: 'openclaw-weixin' },
+    { localPath: join(__dirname, '..', '..', 'openclaw-lumii-plugin'), pluginId: 'openclaw-lumii' },
   ];
 
   mkdirSync(pluginsDestRoot, { recursive: true });
-  for (const { npmName, pluginId } of BUNDLED_PLUGINS) {
+  for (const { npmName, localPath, pluginId } of BUNDLED_PLUGINS) {
     const pluginDestDir = join(pluginsDestRoot, pluginId);
-    console.log(`[after-pack] Bundling plugin ${npmName} -> ${pluginDestDir}`);
-    const ok = bundlePlugin(nodeModulesRoot, npmName, pluginDestDir);
+    console.log(`[after-pack] Bundling plugin ${localPath || npmName} -> ${pluginDestDir}`);
+    let ok = false;
+    if (localPath && existsSync(localPath)) {
+      const required = ['package.json', 'openclaw.plugin.json', 'dist'];
+      const ready = required.every((entry) => existsSync(join(localPath, entry)));
+      if (ready) {
+        rmSync(normWin(pluginDestDir), { recursive: true, force: true });
+        mkdirSync(normWin(pluginDestDir), { recursive: true });
+        cpSync(normWin(join(localPath, 'package.json')), normWin(join(pluginDestDir, 'package.json')));
+        cpSync(normWin(join(localPath, 'openclaw.plugin.json')), normWin(join(pluginDestDir, 'openclaw.plugin.json')));
+        if (existsSync(join(localPath, 'README.md'))) {
+          cpSync(normWin(join(localPath, 'README.md')), normWin(join(pluginDestDir, 'README.md')));
+        }
+        cpSync(normWin(join(localPath, 'dist')), normWin(join(pluginDestDir, 'dist')), { recursive: true, dereference: true });
+        ok = true;
+      } else {
+        console.warn(`[after-pack] ⚠️  Local Lumii plugin is missing build output. Expected: ${required.join(', ')}`);
+      }
+    }
+    if (!ok && npmName) {
+      ok = bundlePlugin(nodeModulesRoot, npmName, pluginDestDir);
+    }
     if (ok) {
       const pluginNM = join(pluginDestDir, 'node_modules');
       cleanupUnnecessaryFiles(pluginDestDir);
@@ -669,6 +728,11 @@ exports.default = async function afterPack(context) {
   if (nativeRemoved > 0) {
     console.log(`[after-pack] ✅ Removed ${nativeRemoved} non-target native platform packages.`);
   }
+  ensureRequiredOpenClawModules({
+    srcNodeModulesDir: src,
+    destNodeModulesDir: dest,
+    workspaceNodeModulesDir: nodeModulesRoot,
+  });
 
   // 5. Patch lru-cache in app.asar.unpacked
   //

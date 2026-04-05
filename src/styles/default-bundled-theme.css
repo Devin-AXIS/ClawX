@@ -1,0 +1,205 @@
+/* Bundled default theme for distributed builds */
+
+:root {
+  --radius: 0.8rem;
+
+  --lumii-app-bg: 248 249 251;
+  --lumii-glow-blue: 180 210 235;
+  --lumii-glow-purple: 200 220 240;
+  --lumii-glow-accent: 210 225 240;
+
+  --lumii-glass-main: rgba(255, 255, 255, 0.84);
+  --lumii-glass-soft: rgba(255, 255, 255, 0.74);
+  --lumii-glass-panel: rgba(255, 255, 255, 0.88);
+  --lumii-glass-border: rgba(255, 255, 255, 0.58);
+  --lumii-shadow-main:
+    0 14px 34px -20px rgba(15, 23, 42, 0.26),
+    0 4px 12px -8px rgba(15, 23, 42, 0.18);
+}
+
+.dark {
+  --lumii-app-bg: 15 23 42;
+  --lumii-glow-blue: 30 58 88;
+  --lumii-glow-purple: 45 55 75;
+  --lumii-glow-accent: 38 50 70;
+
+  --lumii-glass-main: rgba(24, 34, 53, 0.84);
+  --lumii-glass-soft: rgba(24, 34, 53, 0.74);
+  --lumii-glass-panel: rgba(24, 34, 53, 0.88);
+  --lumii-glass-border: rgba(255, 255, 255, 0.16);
+  --lumii-shadow-main:
+    0 16px 38px -22px rgba(0, 0, 0, 0.48),
+    0 6px 14px -10px rgba(0, 0, 0, 0.36);
+}
+
+html,
+body {
+  background-color: rgb(var(--lumii-app-bg)) !important;
+  background-image:
+    linear-gradient(
+      150deg,
+      rgb(var(--lumii-app-bg)) 0%,
+      rgb(var(--lumii-glow-blue) / 0.18) 28%,
+      rgb(var(--lumii-glow-purple) / 0.16) 52%,
+      rgb(var(--lumii-glow-accent) / 0.14) 74%,
+      rgb(var(--lumii-app-bg)) 100%
+    ),
+    radial-gradient(circle at 18% -8%, rgb(var(--lumii-glow-blue) / 0.42) 0%, rgb(var(--lumii-glow-purple) / 0.18) 40%, transparent 68%),
+    radial-gradient(circle at 94% 6%, rgb(var(--lumii-glow-accent) / 0.34) 0%, transparent 62%),
+    radial-gradient(circle at 40% 96%, rgb(var(--lumii-glow-purple) / 0.28) 0%, transparent 64%);
+  background-attachment: fixed;
+}
+
+[data-testid="main-layout"],
+[data-testid="main-content"],
+[data-testid="settings-page"],
+[data-testid="setup-page"] {
+  background: transparent !important;
+}
+
+[data-testid="sidebar"] {
+  background: var(--lumii-glass-soft) !important;
+  border-right: 1px solid var(--lumii-glass-border) !important;
+  box-shadow: var(--lumii-shadow-main) !important;
+  backdrop-filter: blur(10px) saturate(1.05);
+  -webkit-backdrop-filter: blur(10px) saturate(1.05);
+}
+
+.drag-region,
+[data-testid="main-content"] > div:first-child,
+[data-testid="settings-page"] > div:first-child,
+[data-testid="setup-page"] > div:first-child,
+[class*="bg-gradient-to-b"][class*="from-background"],
+[class*="rounded-t-3xl"][class*="from-background"] {
+  background: var(--lumii-glass-soft) !important;
+  border-color: var(--lumii-glass-border) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+[data-testid="main-content"] .rounded-lg.border,
+[data-testid="main-content"] .rounded-xl.border,
+[data-testid="main-content"] .rounded-2xl.border,
+[data-testid="main-content"] .rounded-3xl.border,
+[data-testid="settings-page"] .rounded-lg.border,
+[data-testid="settings-page"] .rounded-xl.border,
+[data-testid="settings-page"] .rounded-2xl.border,
+[data-testid="settings-page"] .rounded-3xl.border,
+[data-testid="setup-page"] .rounded-lg.border,
+[data-testid="setup-page"] .rounded-xl.border,
+[data-testid="setup-page"] .rounded-2xl.border,
+[data-testid="setup-page"] .rounded-3xl.border {
+  background: var(--lumii-glass-main) !important;
+  border-color: var(--lumii-glass-border) !important;
+  box-shadow: var(--lumii-shadow-main), inset 0 1px 0 rgba(255, 255, 255, 0.55) !important;
+}
+
+[data-testid="main-content"] .rounded-\[28px\] {
+  border-radius: 22px !important;
+  background: var(--lumii-glass-panel) !important;
+  border: 1px solid var(--lumii-glass-border) !important;
+  box-shadow: 0 8px 22px -12px rgba(15, 23, 42, 0.20), 0 2px 8px -4px rgba(15, 23, 42, 0.14), inset 0 1px 0 rgba(255, 255, 255, 0.62) !important;
+  backdrop-filter: blur(7px) saturate(1.04);
+  -webkit-backdrop-filter: blur(7px) saturate(1.04);
+}
+
+[role="dialog"],
+[data-radix-dialog-content],
+[data-radix-popper-content-wrapper] > div,
+[data-radix-select-content],
+[data-radix-dropdown-menu-content],
+[data-state="open"][data-side] {
+  background: var(--lumii-glass-panel) !important;
+  border: 1px solid var(--lumii-glass-border) !important;
+  box-shadow: var(--lumii-shadow-main), inset 0 1px 0 rgba(255, 255, 255, 0.64) !important;
+  backdrop-filter: blur(6px) saturate(1.04) !important;
+  -webkit-backdrop-filter: blur(6px) saturate(1.04) !important;
+}
+
+[role="dialog"] [class*="bg-[#f3f1e9]"],
+[role="dialog"] [class*="bg-[#eeece3]"],
+[role="dialog"] [class*="bg-background"],
+[role="dialog"] [class*="bg-card"],
+[data-radix-dialog-content] [class*="bg-[#f3f1e9]"],
+[data-radix-dialog-content] [class*="bg-[#eeece3]"],
+[data-radix-dialog-content] [class*="bg-background"],
+[data-radix-dialog-content] [class*="bg-card"] {
+  background: rgba(245, 247, 251, 0.96) !important;
+  border-color: rgba(223, 229, 238, 0.92) !important;
+}
+
+.dark [role="dialog"] [class*="bg-[#f3f1e9]"],
+.dark [role="dialog"] [class*="bg-[#eeece3]"],
+.dark [role="dialog"] [class*="bg-background"],
+.dark [role="dialog"] [class*="bg-card"],
+.dark [data-radix-dialog-content] [class*="bg-[#f3f1e9]"],
+.dark [data-radix-dialog-content] [class*="bg-[#eeece3]"],
+.dark [data-radix-dialog-content] [class*="bg-background"],
+.dark [data-radix-dialog-content] [class*="bg-card"] {
+  background: rgba(24, 34, 53, 0.93) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+[role="dialog"] input,
+[role="dialog"] textarea,
+[role="dialog"] select,
+[data-radix-dialog-content] input,
+[data-radix-dialog-content] textarea,
+[data-radix-dialog-content] select {
+  background: rgba(248, 250, 253, 0.98) !important;
+  border-color: rgba(221, 228, 238, 0.95) !important;
+}
+
+.dark [role="dialog"] input,
+.dark [role="dialog"] textarea,
+.dark [role="dialog"] select,
+.dark [data-radix-dialog-content] input,
+.dark [data-radix-dialog-content] textarea,
+.dark [data-radix-dialog-content] select {
+  background: rgba(20, 29, 47, 0.98) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+[data-radix-dialog-overlay],
+[aria-hidden="true"][data-state="open"] {
+  background: rgba(15, 23, 42, 0.30) !important;
+}
+
+.dark [data-radix-dialog-overlay],
+.dark [aria-hidden="true"][data-state="open"] {
+  background: rgba(2, 6, 23, 0.44) !important;
+}
+
+button,
+input,
+textarea,
+select {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.bg-\[\#f3f1e9\],
+.bg-\[\#eeece3\] {
+  background: rgba(245, 247, 251, 0.96) !important;
+}
+
+.dark .bg-\[\#f3f1e9\],
+.dark .bg-\[\#eeece3\] {
+  background: rgba(24, 34, 53, 0.93) !important;
+}
+
+[role="dialog"] .bg-\[\#f3f1e9\],
+[role="dialog"] .bg-\[\#eeece3\],
+[data-radix-dialog-content] .bg-\[\#f3f1e9\],
+[data-radix-dialog-content] .bg-\[\#eeece3\] {
+  border-color: rgba(223, 229, 238, 0.92) !important;
+  box-shadow: var(--lumii-shadow-main) !important;
+}
+
+.dark [role="dialog"] .bg-\[\#f3f1e9\],
+.dark [role="dialog"] .bg-\[\#eeece3\],
+.dark [data-radix-dialog-content] .bg-\[\#f3f1e9\],
+.dark [data-radix-dialog-content] .bg-\[\#eeece3\] {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}

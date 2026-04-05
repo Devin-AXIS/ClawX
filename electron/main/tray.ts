@@ -4,6 +4,7 @@
  */
 import { Tray, Menu, BrowserWindow, app, nativeImage } from 'electron';
 import { join } from 'path';
+import { resolveOverrideIconPath } from '../utils/brand-overrides';
 
 let tray: Tray | null = null;
 
@@ -21,6 +22,7 @@ function getIconsDir(): string {
  * Create system tray icon and menu
  */
 export function createTray(mainWindow: BrowserWindow): Tray {
+  const appName = app.getName();
   // Use platform-appropriate icon for system tray
   const iconsDir = getIconsDir();
   let iconPath: string;
@@ -38,6 +40,13 @@ export function createTray(mainWindow: BrowserWindow): Tray {
   }
 
   let icon = nativeImage.createFromPath(iconPath);
+  const overrideIconPath = resolveOverrideIconPath();
+  if (overrideIconPath) {
+    const overrideIcon = nativeImage.createFromPath(overrideIconPath);
+    if (!overrideIcon.isEmpty()) {
+      icon = overrideIcon;
+    }
+  }
 
   // Fallback to icon.png if platform-specific icon not found
   if (icon.isEmpty()) {
@@ -57,7 +66,7 @@ export function createTray(mainWindow: BrowserWindow): Tray {
   tray = new Tray(icon);
   
   // Set tooltip
-  tray.setToolTip('ClawX - AI Assistant');
+  tray.setToolTip(`${appName} - AI Assistant`);
   
   const showWindow = () => {
     if (mainWindow.isDestroyed()) return;
@@ -68,7 +77,7 @@ export function createTray(mainWindow: BrowserWindow): Tray {
   // Create context menu
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: 'Show ClawX',
+      label: `Show ${appName}`,
       click: showWindow,
     },
     {
@@ -122,7 +131,7 @@ export function createTray(mainWindow: BrowserWindow): Tray {
       type: 'separator',
     },
     {
-      label: 'Quit ClawX',
+      label: `Quit ${appName}`,
       click: () => {
         app.quit();
       },
@@ -157,7 +166,7 @@ export function createTray(mainWindow: BrowserWindow): Tray {
  */
 export function updateTrayStatus(status: string): void {
   if (tray) {
-    tray.setToolTip(`ClawX - ${status}`);
+    tray.setToolTip(`${app.getName()} - ${status}`);
   }
 }
 

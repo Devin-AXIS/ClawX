@@ -2,11 +2,13 @@
  * Update Settings Component
  * Displays update status and allows manual update checking/installation
  */
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import { Download, RefreshCw, Loader2, Rocket, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useUpdateStore } from '@/stores/update';
+import { useSettingsStore } from '@/stores/settings';
+import { invokeIpc } from '@/lib/api-client';
 import { useTranslation } from 'react-i18next';
 
 function formatBytes(bytes: number): string {
@@ -19,6 +21,7 @@ function formatBytes(bytes: number): string {
 
 export function UpdateSettings() {
   const { t } = useTranslation('settings');
+  const devModeUnlocked = useSettingsStore((state) => state.devModeUnlocked);
   const {
     status,
     currentVersion,
@@ -34,6 +37,9 @@ export function UpdateSettings() {
     cancelAutoInstall,
     clearError,
   } = useUpdateStore();
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsJson, setDiagnosticsJson] = useState('');
+  const signatureError = !!error && /code signature|signature validation/i.test(error);
 
   // Initialize on mount
   useEffect(() => {
@@ -44,6 +50,18 @@ export function UpdateSettings() {
     clearError();
     await checkForUpdates();
   }, [checkForUpdates, clearError]);
+
+  const handleLoadDiagnostics = useCallback(async () => {
+    setDiagnosticsLoading(true);
+    try {
+      const result = await invokeIpc<Record<string, unknown>>('update:diagnostics');
+      setDiagnosticsJson(JSON.stringify(result, null, 2));
+    } catch (err) {
+      setDiagnosticsJson(JSON.stringify({ error: String(err) }, null, 2));
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }, []);
 
   const renderStatusIcon = () => {
     switch (status) {
@@ -122,6 +140,17 @@ export function UpdateSettings() {
           </Button>
         );
       case 'error':
+        if (signatureError) {
+          return (
+            <Button
+              onClick={() => invokeIpc('update:openLatestRelease')}
+              variant="outline"
+              size="sm"
+            >
+              {t('updates.action.download')}
+            </Button>
+          );
+        }
         return (
           <Button onClick={handleCheckForUpdates} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
@@ -165,17 +194,24 @@ export function UpdateSettings() {
       </div>
 
       {/* Download Progress */}
-      {status === 'downloading' && progress && (
+      {status === 'downloading' && (
         <div className="space-y-2">
           <div className="flex justify-between text-sm">
             <span>
-              {formatBytes(progress.transferred)} / {formatBytes(progress.total)}
+              {progress
+                ? `${formatBytes(progress.transferred)} / ${progress.total > 0 ? formatBytes(progress.total) : '--'}`
+                : 'Preparing download...'}
             </span>
-            <span>{formatBytes(progress.bytesPerSecond)}/s</span>
+            <span>{progress ? `${formatBytes(progress.bytesPerSecond)}/s` : '--'}</span>
           </div>
-          <Progress value={progress.percent} className="h-2" />
+          <Progress
+            value={progress && progress.total > 0 ? progress.percent : 12}
+            className="h-2"
+          />
           <p className="text-xs text-muted-foreground text-center">
-            {Math.round(progress.percent)}% complete
+            {progress && progress.total > 0
+              ? `${Math.round(progress.percent)}% complete`
+              : 'Downloading...'}
           </p>
         </div>
       )}
@@ -212,6 +248,34 @@ export function UpdateSettings() {
       <p className="text-xs text-muted-foreground">
         {t('updates.help')}
       </p>
+
+      {devModeUnlocked && (
+        <div className="space-y-2 rounded-lg border border-dashed p-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-muted-foreground">Update diagnostics (dev mode)</p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleLoadDiagnostics}
+              disabled={diagnosticsLoading}
+            >
+              {diagnosticsLoading ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Loading
+                </>
+              ) : (
+                'Load diagnostics'
+              )}
+            </Button>
+          </div>
+          {diagnosticsJson && (
+            <pre className="max-h-52 overflow-auto rounded-md bg-muted p-2 text-[11px]">
+              {diagnosticsJson}
+            </pre>
+          )}
+        </div>
+      )}
     </div>
   );
 }

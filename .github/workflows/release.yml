@@ -82,6 +82,28 @@ jobs:
 
       # --publish never: prevent electron-builder from auto-publishing to GitHub.
       # All artifacts are collected and published atomically in the publish job.
+      - name: Validate macOS signing/notarization secrets
+        if: matrix.platform == 'mac'
+        env:
+          MAC_CERTS: ${{ secrets.MAC_CERTS }}
+          MAC_CERTS_PASSWORD: ${{ secrets.MAC_CERTS_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for key in MAC_CERTS MAC_CERTS_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required macOS release secret: ${key}"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::macOS signing/notarization secrets are required to keep auto-update healthy."
+            exit 1
+          fi
+
       - name: Build macOS
         if: matrix.platform == 'mac'
         env:
@@ -95,6 +117,29 @@ jobs:
           ulimit -n 65536
           echo "File descriptor limit: $(ulimit -n)"
           pnpm run package:mac
+
+      - name: Verify macOS signatures are non-adhoc
+        if: matrix.platform == 'mac'
+        run: |
+          set -euo pipefail
+          for app in "release/mac/Lumii.app" "release/mac-arm64/Lumii.app"; do
+            if [ ! -d "$app" ]; then
+              echo "::error::Missing app bundle: $app"
+              exit 1
+            fi
+            echo "Verifying $app"
+            codesign --verify --deep --strict --verbose=2 "$app"
+            info="$(codesign -dv --verbose=4 "$app" 2>&1)"
+            echo "$info"
+            if echo "$info" | grep -q "Signature=adhoc"; then
+              echo "::error::Ad-hoc signature detected for $app"
+              exit 1
+            fi
+            if echo "$info" | grep -q "TeamIdentifier=not set"; then
+              echo "::error::Missing TeamIdentifier in signature for $app"
+              exit 1
+            fi
+          done
 
       # Windows specific steps
       - name: Build Windows
@@ -308,28 +353,28 @@ jobs:
           make_latest: false
           generate_release_notes: true
           body: |
-            ## 🚀 ClawX ${{ github.ref_name }}
+            ## 🚀 Lumii ${{ github.ref_name }}
             
-            ClawX - Graphical AI Assistant based on OpenClaw
+            Lumii - Graphical AI Assistant based on OpenClaw
             
             ### 📦 Downloads
             
             Please select the appropriate installer for your operating system and architecture:
             
             #### macOS
-            - **Apple Silicon (M1/M2/M3/M4)**: `ClawX-*-mac-arm64.dmg`
-            - **Intel (x64)**: `ClawX-*-mac-x64.dmg`
+            - **Apple Silicon (M1/M2/M3/M4)**: `Lumii-*-mac-arm64.dmg`
+            - **Intel (x64)**: `Lumii-*-mac-x64.dmg`
             
             #### Windows
-            - **Installer (x64)**: `ClawX-*-win-x64.exe`
-            - **Installer (ARM64)**: `ClawX-*-win-arm64.exe`
+            - **Installer (x64)**: `Lumii-*-win-x64.exe`
+            - **Installer (ARM64)**: `Lumii-*-win-arm64.exe`
             
             #### Linux
-            - **AppImage (x64)**: `ClawX-*-linux-x86_64.AppImage` (Universal format, recommended)
-            - **AppImage (ARM64)**: `ClawX-*-linux-arm64.AppImage`
-            - **Debian/Ubuntu (x64)**: `ClawX-*-linux-amd64.deb`
-            - **Debian/Ubuntu (ARM64)**: `ClawX-*-linux-arm64.deb`
-            - **RPM (x64)**: `ClawX-*-linux-x86_64.rpm`
+            - **AppImage (x64)**: `Lumii-*-linux-x86_64.AppImage` (Universal format, recommended)
+            - **AppImage (ARM64)**: `Lumii-*-linux-arm64.AppImage`
+            - **Debian/Ubuntu (x64)**: `Lumii-*-linux-amd64.deb`
+            - **Debian/Ubuntu (ARM64)**: `Lumii-*-linux-arm64.deb`
+            - **RPM (x64)**: `Lumii-*-linux-x86_64.rpm`
             
             ### 📝 Release Notes
             
@@ -339,7 +384,7 @@ jobs:
             
             - **macOS**: On first launch, you may see "cannot verify developer". Go to System Preferences → Security & Privacy to allow the app to run
             - **Windows**: SmartScreen may block the app. Click "More info" → "Run anyway" to proceed
-            - **Linux AppImage**: First run `chmod +x ClawX-*.AppImage` to add execute permission. On Ubuntu 22.04 you may also need `sudo apt install libfuse2`; on Ubuntu 24.04 use `sudo apt install libfuse2t64`
+            - **Linux AppImage**: First run `chmod +x Lumii-*.AppImage` to add execute permission. On Ubuntu 22.04 you may also need `sudo apt install libfuse2`; on Ubuntu 24.04 use `sudo apt install libfuse2t64`
             - **Linux .deb (Ubuntu 24.04)**: If installation fails due to missing dependencies, use `sudo apt install libgtk-3-0t64 libnotify4t64 libxss1t64` before installing
             
             ---
@@ -442,19 +487,19 @@ jobs:
               releaseDate: $date,
               downloads: {
                 mac: {
-                  x64: ($base + "/ClawX-" + $version + "-mac-x64.dmg"),
-                  arm64: ($base + "/ClawX-" + $version + "-mac-arm64.dmg")
+                  x64: ($base + "/Lumii-" + $version + "-mac-x64.dmg"),
+                  arm64: ($base + "/Lumii-" + $version + "-mac-arm64.dmg")
                 },
                 win: {
-                  x64: ($base + "/ClawX-" + $version + "-win-x64.exe"),
-                  arm64: ($base + "/ClawX-" + $version + "-win-arm64.exe")
+                  x64: ($base + "/Lumii-" + $version + "-win-x64.exe"),
+                  arm64: ($base + "/Lumii-" + $version + "-win-arm64.exe")
                 },
                 linux: {
-                  deb_amd64: ($base + "/ClawX-" + $version + "-linux-amd64.deb"),
-                  deb_arm64: ($base + "/ClawX-" + $version + "-linux-arm64.deb"),
-                  appimage_x64: ($base + "/ClawX-" + $version + "-linux-x86_64.AppImage"),
-                  appimage_arm64: ($base + "/ClawX-" + $version + "-linux-arm64.AppImage"),
-                  rpm_x64: ($base + "/ClawX-" + $version + "-linux-x86_64.rpm")
+                  deb_amd64: ($base + "/Lumii-" + $version + "-linux-amd64.deb"),
+                  deb_arm64: ($base + "/Lumii-" + $version + "-linux-arm64.deb"),
+                  appimage_x64: ($base + "/Lumii-" + $version + "-linux-x86_64.AppImage"),
+                  appimage_arm64: ($base + "/Lumii-" + $version + "-linux-arm64.AppImage"),
+                  rpm_x64: ($base + "/Lumii-" + $version + "-linux-x86_64.rpm")
                 }
               },
               changelog: $changelog

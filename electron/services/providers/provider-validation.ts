@@ -10,6 +10,7 @@ type ValidationProfile =
   | 'none';
 
 type ValidationResult = { valid: boolean; error?: string; status?: number };
+export type DiscoveredProviderModel = { id: string; name: string };
 
 function logValidationStatus(provider: string, status: number): void {
   console.log(`[clawx-validate] ${provider} HTTP ${status}`);
@@ -384,5 +385,180 @@ export async function validateApiKeyWithProvider(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { valid: false, error: errorMessage };
+  }
+}
+
+function normalizeDiscoveredModels(
+  items: Array<{ id?: unknown; name?: unknown }>,
+): DiscoveredProviderModel[] {
+  const result: DiscoveredProviderModel[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const id = typeof item.id === 'string' ? item.id.trim() : '';
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    const name = typeof item.name === 'string' && item.name.trim() ? item.name.trim() : id;
+    result.push({ id, name });
+  }
+  return result;
+}
+
+async function discoverOpenAiCompatibleModels(
+  providerType: string,
+  apiKey: string,
+  apiProtocol: 'openai-completions' | 'openai-responses',
+  baseUrl?: string,
+): Promise<{ models: DiscoveredProviderModel[]; error?: string }> {
+  const trimmedBaseUrl = baseUrl?.trim();
+  if (!trimmedBaseUrl) {
+    return { models: [], error: `Base URL is required for provider "${providerType}"` };
+  }
+  const { modelsUrl } = resolveOpenAiProbeUrls(trimmedBaseUrl, apiProtocol);
+  const headers = { Authorization: `Bearer ${apiKey}` };
+  try {
+    logValidationRequest(providerType, 'GET', modelsUrl, headers);
+    const response = await proxyAwareFetch(modelsUrl, { headers });
+    logValidationStatus(providerType, response.status);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const classified = classifyAuthResponse(response.status, payload);
+      return { models: [], error: classified.error || `API error: ${response.status}` };
+    }
+    const data = (payload as { data?: unknown }).data;
+    if (!Array.isArray(data)) {
+      return { models: [], error: 'Model list response has invalid format' };
+    }
+    return {
+      models: normalizeDiscoveredModels(
+        data.map((model) => {
+          const obj = model as Record<string, unknown>;
+          const id = typeof obj.id === 'string' ? obj.id : undefined;
+          const name =
+            (typeof obj.name === 'string' && obj.name)
+            || (typeof obj.display_name === 'string' ? obj.display_name : undefined)
+            || id;
+          return { id, name };
+        }),
+      ),
+    };
+  } catch (error) {
+    return {
+      models: [],
+      error: `Connection error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function discoverAnthropicModels(
+  providerType: string,
+  apiKey: string,
+  baseUrl?: string,
+): Promise<{ models: DiscoveredProviderModel[]; error?: string }> {
+  const rawBase = normalizeBaseUrl(baseUrl || 'https://api.anthropic.com/v1');
+  const base = rawBase.endsWith('/v1') ? rawBase : `${rawBase}/v1`;
+  const modelsUrl = `${base}/models?limit=100`;
+  const headers = {
+    'x-api-key': apiKey,
+    'anthropic-version': '2023-06-01',
+  };
+  try {
+    logValidationRequest(providerType, 'GET', modelsUrl, headers);
+    const response = await proxyAwareFetch(modelsUrl, { headers });
+    logValidationStatus(providerType, response.status);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const classified = classifyAuthResponse(response.status, payload);
+      return { models: [], error: classified.error || `API error: ${response.status}` };
+    }
+    const data = (payload as { data?: unknown }).data;
+    if (!Array.isArray(data)) {
+      return { models: [], error: 'Model list response has invalid format' };
+    }
+    return {
+      models: normalizeDiscoveredModels(
+        data.map((model) => {
+          const obj = model as Record<string, unknown>;
+          const id = typeof obj.id === 'string' ? obj.id : undefined;
+          const name =
+            (typeof obj.display_name === 'string' && obj.display_name)
+            || (typeof obj.name === 'string' ? obj.name : undefined)
+            || id;
+          return { id, name };
+        }),
+      ),
+    };
+  } catch (error) {
+    return {
+      models: [],
+      error: `Connection error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function discoverGoogleModels(
+  providerType: string,
+  apiKey: string,
+  baseUrl?: string,
+): Promise<{ models: DiscoveredProviderModel[]; error?: string }> {
+  const base = normalizeBaseUrl(baseUrl || 'https://generativelanguage.googleapis.com/v1beta');
+  const url = `${base}/models?pageSize=100&key=${encodeURIComponent(apiKey)}`;
+  try {
+    logValidationRequest(providerType, 'GET', url, {});
+    const response = await proxyAwareFetch(url);
+    logValidationStatus(providerType, response.status);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const classified = classifyAuthResponse(response.status, payload);
+      return { models: [], error: classified.error || `API error: ${response.status}` };
+    }
+    const models = (payload as { models?: unknown }).models;
+    if (!Array.isArray(models)) {
+      return { models: [], error: 'Model list response has invalid format' };
+    }
+    return {
+      models: normalizeDiscoveredModels(
+        models.map((model) => {
+          const obj = model as Record<string, unknown>;
+          const rawName = typeof obj.name === 'string' ? obj.name : '';
+          const id = rawName.startsWith('models/') ? rawName.slice('models/'.length) : rawName;
+          const name = typeof obj.displayName === 'string' ? obj.displayName : id;
+          return { id, name };
+        }),
+      ),
+    };
+  } catch (error) {
+    return {
+      models: [],
+      error: `Connection error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export async function discoverModelsWithProvider(
+  providerType: string,
+  apiKey: string,
+  options?: { baseUrl?: string; apiProtocol?: string },
+): Promise<{ models: DiscoveredProviderModel[]; error?: string }> {
+  const trimmedKey = apiKey.trim();
+  if (!trimmedKey) {
+    return { models: [], error: 'API key is required' };
+  }
+  const profile = getValidationProfile(providerType, options);
+  const resolvedBaseUrl = options?.baseUrl || getProviderConfig(providerType)?.baseUrl;
+  switch (profile) {
+    case 'openai-completions':
+      return await discoverOpenAiCompatibleModels(providerType, trimmedKey, 'openai-completions', resolvedBaseUrl);
+    case 'openai-responses':
+      return await discoverOpenAiCompatibleModels(providerType, trimmedKey, 'openai-responses', resolvedBaseUrl);
+    case 'anthropic-header':
+      return await discoverAnthropicModels(providerType, trimmedKey, resolvedBaseUrl);
+    case 'google-query-key':
+      return await discoverGoogleModels(providerType, trimmedKey, resolvedBaseUrl);
+    case 'openrouter':
+      return await discoverOpenAiCompatibleModels(providerType, trimmedKey, 'openai-completions', 'https://openrouter.ai/api/v1');
+    case 'none':
+      return { models: [] };
+    default:
+      return { models: [], error: `Unsupported model discovery profile for provider: ${providerType}` };
   }
 }

@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'http';
 import { PORTS } from '../../utils/config';
 import { buildOpenClawControlUiUrl } from '../../utils/openclaw-control-ui';
 import { getSetting } from '../../utils/store';
+import { syncAllProviderAuthToRuntime } from '../../services/providers/provider-runtime-sync';
 import type { HostApiContext } from '../context';
 import { parseJsonBody, sendJson } from '../route-utils';
 
@@ -36,6 +37,7 @@ export async function handleGatewayRoutes(
 
   if (url.pathname === '/api/gateway/start' && req.method === 'POST') {
     try {
+      await syncAllProviderAuthToRuntime();
       await ctx.gatewayManager.start();
       sendJson(res, 200, { success: true });
     } catch (error) {
@@ -79,6 +81,8 @@ export async function handleGatewayRoutes(
 
   if (url.pathname === '/api/chat/send-with-media' && req.method === 'POST') {
     try {
+      // Ensure provider credentials exist in OpenClaw runtime before sending.
+      await syncAllProviderAuthToRuntime();
       const body = await parseJsonBody<{
         sessionKey: string;
         message: string;

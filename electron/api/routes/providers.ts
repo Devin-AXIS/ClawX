@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   type ProviderConfig,
+  getApiKey,
 } from '../../utils/secure-storage';
 import {
   getProviderConfig,
@@ -17,7 +18,7 @@ import {
   syncSavedProviderToRuntime,
   syncUpdatedProviderToRuntime,
 } from '../../services/providers/provider-runtime-sync';
-import { validateApiKeyWithProvider } from '../../services/providers/provider-validation';
+import { discoverModelsWithProvider, validateApiKeyWithProvider } from '../../services/providers/provider-validation';
 import { getProviderService } from '../../services/providers/provider-service';
 import { providerAccountToConfig } from '../../services/providers/provider-store';
 import type { ProviderAccount } from '../../shared/providers/types';
@@ -198,6 +199,42 @@ export async function handleProviderRoutes(
       sendJson(res, 200, await validateApiKeyWithProvider(providerType, body.apiKey, { baseUrl: resolvedBaseUrl, apiProtocol: resolvedProtocol }));
     } catch (error) {
       sendJson(res, 500, { valid: false, error: String(error) });
+    }
+    return true;
+  }
+
+  if (url.pathname === '/api/providers/discover-models' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody<{
+        providerId?: string;
+        providerType?: string;
+        apiKey?: string;
+        options?: { baseUrl?: string; apiProtocol?: string };
+      }>(req);
+      const provider = body.providerId
+        ? await providerService.getLegacyProvider(body.providerId)
+        : null;
+      const providerType = body.providerType || provider?.type || body.providerId;
+      if (!providerType) {
+        sendJson(res, 400, { success: false, error: 'providerType is required' });
+        return true;
+      }
+      const keyFromStore = body.providerId ? await getApiKey(body.providerId) : null;
+      const effectiveApiKey = body.apiKey?.trim() || keyFromStore || '';
+      if (!effectiveApiKey) {
+        sendJson(res, 400, { success: false, error: 'API key is required' });
+        return true;
+      }
+      const registryBaseUrl = getProviderConfig(providerType)?.baseUrl;
+      const resolvedBaseUrl = body.options?.baseUrl || provider?.baseUrl || registryBaseUrl;
+      const resolvedProtocol = body.options?.apiProtocol || provider?.apiProtocol;
+      const discovered = await discoverModelsWithProvider(providerType, effectiveApiKey, {
+        baseUrl: resolvedBaseUrl,
+        apiProtocol: resolvedProtocol,
+      });
+      sendJson(res, 200, { success: !discovered.error, models: discovered.models, error: discovered.error });
+    } catch (error) {
+      sendJson(res, 500, { success: false, error: String(error), models: [] });
     }
     return true;
   }
