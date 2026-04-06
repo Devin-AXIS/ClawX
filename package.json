@@ -67,6 +67,9 @@
         "postversion": "git push && git push --tags"
     },
     "dependencies": {
+        "@aws-sdk/client-bedrock": "^3.1024.0",
+        "@buape/carbon": "^0.14.0",
+        "@slack/web-api": "^7.15.0",
         "@sinclair/typebox": "^0.34.48",
         "clawhub": "^0.5.0",
         "electron-store": "^11.0.2",
@@ -80,6 +83,7 @@
     "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@larksuite/openclaw-lark": "2026.3.31",
+        "@playwright/test": "^1.56.1",
         "@radix-ui/react-dialog": "^1.1.15",
         "@radix-ui/react-dropdown-menu": "^2.1.16",
         "@radix-ui/react-label": "^2.1.8",
@@ -92,7 +96,6 @@
         "@radix-ui/react-tabs": "^1.1.13",
         "@radix-ui/react-toast": "^1.2.15",
         "@radix-ui/react-tooltip": "^1.2.8",
-        "@playwright/test": "^1.56.1",
         "@soimy/dingtalk": "^3.5.1",
         "@tencent-weixin/openclaw-weixin": "^2.1.1",
         "@testing-library/jest-dom": "^6.9.1",

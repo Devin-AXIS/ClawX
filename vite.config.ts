@@ -62,6 +62,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Fail fast if 5173 is taken instead of silently using the next port, which
+    // would desync any tooling or bookmarks expecting http://localhost:5173/.
+    strictPort: true,
   },
   build: {
     outDir: 'dist',

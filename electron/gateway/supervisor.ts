@@ -2,6 +2,7 @@ import { app, utilityProcess } from 'electron';
 import path from 'path';
 import { existsSync } from 'fs';
 import WebSocket from 'ws';
+import { gatewayWebSocketUrl } from '../utils/config';
 import { getOpenClawDir, getOpenClawEntryPath } from '../utils/paths';
 import { getUvMirrorEnv } from '../utils/uv-env';
 import { isPythonReady, setupManagedPython } from '../utils/uv-setup';
@@ -256,7 +257,7 @@ export async function findExistingGatewayProcess(options: {
     }
 
     return await new Promise<{ port: number; externalToken?: string } | null>((resolve) => {
-      const testWs = new WebSocket(`ws://localhost:${port}/ws`);
+      const testWs = new WebSocket(gatewayWebSocketUrl(port));
       const terminateAndResolve = (result: { port: number; externalToken?: string } | null) => {
         // terminate() avoids TIME_WAIT on Windows (vs close() which does WS handshake)
         try { testWs.terminate(); } catch { /* ignore */ }

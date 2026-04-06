@@ -21,6 +21,17 @@ export const PORTS = {
 } as const;
 
 /**
+ * IPv4 loopback for Gateway WebSocket clients in the main process.
+ * Using `localhost` can resolve to ::1 while the Gateway listens on 127.0.0.1 only,
+ * which breaks or flakes the handshake on some macOS/Linux setups.
+ */
+export const GATEWAY_LOOPBACK_HOST = '127.0.0.1' as const;
+
+export function gatewayWebSocketUrl(port: number): string {
+  return `ws://${GATEWAY_LOOPBACK_HOST}:${port}/ws`;
+}
+
+/**
  * Get port from environment or default
  */
 export function getPort(key: keyof typeof PORTS): number {

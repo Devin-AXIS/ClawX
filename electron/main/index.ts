@@ -200,7 +200,21 @@ function createWindow(): BrowserWindow {
     if (shouldSkipSetupForE2E) {
       rendererUrl.searchParams.set('e2eSkipSetup', '1');
     }
-    win.loadURL(rendererUrl.toString());
+    const devUrlString = rendererUrl.toString();
+    win.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (!isMainFrame) return;
+      // -102 ERR_CONNECTION_REFUSED: Vite not running, wrong port, or stale VITE_DEV_SERVER_URL
+      if (errorCode === -102) {
+        logger.error(
+          `Failed to load dev URL (${validatedURL}): ${errorDescription}. ` +
+            `Start the Vite dev server from the repo root with \`pnpm dev\`. ` +
+            `If port 5173 is already in use, stop the other process or change vite.config server.port (strictPort is enabled).`,
+        );
+      } else {
+        logger.error(`Failed to load dev URL (${validatedURL}): ${errorDescription} (code=${errorCode})`);
+      }
+    });
+    void win.loadURL(devUrlString);
     if (!isE2EMode) {
       win.webContents.openDevTools();
     }

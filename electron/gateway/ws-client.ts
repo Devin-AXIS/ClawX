@@ -6,6 +6,7 @@ import {
   publicKeyRawBase64UrlFromPem,
   signDevicePayload,
 } from '../utils/device-identity';
+import { gatewayWebSocketUrl } from '../utils/config';
 import { logger } from '../utils/logger';
 
 export const GATEWAY_CHALLENGE_TIMEOUT_MS = 10_000;
@@ -16,7 +17,7 @@ export async function probeGatewayReady(
   timeoutMs = 1500,
 ): Promise<boolean> {
   return await new Promise<boolean>((resolve) => {
-    const testWs = new WebSocket(`ws://localhost:${port}/ws`);
+    const testWs = new WebSocket(gatewayWebSocketUrl(port));
     let settled = false;
 
     const resolveOnce = (value: boolean) => {
@@ -178,12 +179,12 @@ export async function connectGatewaySocket(options: {
   challengeTimeoutMs?: number;
   connectTimeoutMs?: number;
 }): Promise<WebSocket> {
-  logger.debug(`Connecting Gateway WebSocket (ws://localhost:${options.port}/ws)`);
+  logger.debug(`Connecting Gateway WebSocket (${gatewayWebSocketUrl(options.port)})`);
   const challengeTimeoutMs = options.challengeTimeoutMs ?? GATEWAY_CHALLENGE_TIMEOUT_MS;
   const connectTimeoutMs = options.connectTimeoutMs ?? GATEWAY_CONNECT_HANDSHAKE_TIMEOUT_MS;
 
   return await new Promise<WebSocket>((resolve, reject) => {
-    const wsUrl = `ws://localhost:${options.port}/ws`;
+    const wsUrl = gatewayWebSocketUrl(options.port);
     const ws = new WebSocket(wsUrl);
     let handshakeComplete = false;
     let connectId: string | null = null;
