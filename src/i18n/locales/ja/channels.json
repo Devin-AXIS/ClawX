@@ -367,6 +367,38 @@
             ],
             "docsUrl": "https://docs.openclaw.ai/channels/mattermost"
         },
+        "openclaw-lumii": {
+            "description": "openclaw-lumii（プラグイン表示名 Lumii (Metaio)）：ログインは Metaio のみ（パスワードまたは QR）。独立した Lumii 業務用 HTTP API はこの構成では使いません。トークンは Metaio 由来。lumii-file 等は openclaw.plugin.json / LUMII_FILE_*。",
+            "docsUrl": "https://docs.openclaw.ai/channels/openclaw-lumii",
+            "fields": {
+                "channelUiNote": {
+                    "label": "メモ",
+                    "placeholder": "任意のメモ",
+                    "description": "プラグインの channelUiNote に対応（任意）。ClawX 内のログインは常に Metaio（パスワードまたは QR）。"
+                },
+                "metaioLoginMode": {
+                    "label": "ログイン方法",
+                    "description": "METAIO_LOGIN_MODE と同じ：password/pwd は Metaio パスワード、qr/qrcode/scan は Metaio QR。dev-config の METAIO_PASSWORD_LOGIN=1 でパスワード固定も可。channels.openclaw-lumii に保存。",
+                    "optionPassword": "アカウント・パスワード",
+                    "optionQr": "QR コード"
+                },
+                "metaioUsername": {
+                    "label": "アカウント",
+                    "placeholder": "ユーザー名または電話番号",
+                    "description": "METAIO_USERNAME に対応。~/.openclaw/openclaw-lumii/dev-config.json にも設定できます。"
+                },
+                "metaioPassword": {
+                    "label": "パスワード",
+                    "placeholder": "パスワード",
+                    "description": "METAIO_PASSWORD に対応。シークレットは環境変数や dev-config の利用を推奨します。"
+                }
+            },
+            "instructions": [
+                "openclaw-lumii プラグインを有効化します（openclaw.plugin.json：channelUiNote、任意の lumii-file など）。",
+                "環境変数または ~/.openclaw/openclaw-lumii/dev-config.json で Metaio を設定（METAIO_BASE_URL または METAIO_AUTH=1。任意: METAIO_LOGIN_PATH、METAIO_QR_START_PATH、METAIO_QR_STATUS_PATH。パスワードログインの JSON キーは METAIO_LOGIN_USERNAME_FIELD / METAIO_LOGIN_PASSWORD_FIELD、既定は username/password）。",
+                "パスワードまたは QR を選んで保存します。QR は Metaio のみ（プラグインのチャンネル「ログイン」と同じ）。"
+            ]
+        },
         "qqbot": {
             "description": "QQ ボットチャンネルに接続します（OpenClaw 3.31 より内蔵）",
             "fields": {

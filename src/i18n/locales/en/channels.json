@@ -367,6 +367,38 @@
                 "Copy the access token"
             ]
         },
+        "openclaw-lumii": {
+            "description": "openclaw-lumii (plugin label: Lumii (Metaio)): use Metaio only for login — password or QR scan. There is no separate Lumii business HTTP API in this setup; JWT comes from Metaio. Optional plugin extras (e.g. lumii-file OSS) are in openclaw.plugin.json / LUMII_FILE_*.",
+            "docsUrl": "https://docs.openclaw.ai/channels/openclaw-lumii",
+            "fields": {
+                "channelUiNote": {
+                    "label": "Note",
+                    "placeholder": "Optional note for this channel",
+                    "description": "Matches plugin config channelUiNote (optional). Login is always via Metaio in ClawX (password or QR)."
+                },
+                "metaioLoginMode": {
+                    "label": "Login method",
+                    "description": "Same as METAIO_LOGIN_MODE: password / pwd → Metaio password; qr / qrcode / scan → Metaio QR. You can also force password with METAIO_PASSWORD_LOGIN=1 in dev-config. Stored under channels.openclaw-lumii.",
+                    "optionPassword": "Account & password",
+                    "optionQr": "QR code"
+                },
+                "metaioUsername": {
+                    "label": "Account",
+                    "placeholder": "Username or phone",
+                    "description": "Maps to METAIO_USERNAME for Metaio password login. You can also set it in ~/.openclaw/openclaw-lumii/dev-config.json."
+                },
+                "metaioPassword": {
+                    "label": "Password",
+                    "placeholder": "Your password",
+                    "description": "Maps to METAIO_PASSWORD. Prefer env or dev-config for secrets."
+                }
+            },
+            "instructions": [
+                "Install and enable the openclaw-lumii plugin (see openclaw.plugin.json for optional channelUiNote and lumii-file fields).",
+                "Configure Metaio in env or ~/.openclaw/openclaw-lumii/dev-config.json (METAIO_BASE_URL or METAIO_AUTH=1; optional METAIO_LOGIN_PATH, METAIO_QR_START_PATH / METAIO_QR_STATUS_PATH; password login JSON keys METAIO_LOGIN_USERNAME_FIELD / METAIO_LOGIN_PASSWORD_FIELD, default username/password).",
+                "Choose password or QR, then save. Scan login talks only to Metaio (same as the plugin channel Login)."
+            ]
+        },
         "qqbot": {
             "description": "Connect QQ Bot channel (built-in since OpenClaw 3.31)",
             "docsUrl": "https://icnnp7d0dymg.feishu.cn/wiki/KPIJwlyiGiupMrkiS9ice39Zn2c",

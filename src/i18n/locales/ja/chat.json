@@ -37,5 +37,25 @@
         "withinTwoWeeks": "2週間以内",
         "withinMonth": "1か月以内",
         "older": "1か月より前"
+    },
+    "lumii": {
+        "login": "Lumii にログイン",
+        "logout": "ログアウト",
+        "dialogTitle": "Lumii (Metaio) にログイン",
+        "dialogDescription": "アカウントを保存し、Lumii チャンネルを自動設定します。",
+        "username": "アカウント",
+        "usernamePlaceholder": "Metaio ユーザー名",
+        "password": "パスワード",
+        "passwordPlaceholder": "パスワード",
+        "cancel": "キャンセル",
+        "submit": "ログインして設定",
+        "connecting": "接続中…",
+        "missingCredentials": "ユーザー名とパスワードを入力してください。",
+        "loginFailed": "ログインに失敗しました。",
+        "loginFailedWithError": "ログイン失敗: {{error}}",
+        "noUid": "アカウント ID が返されませんでした。再試行してください。",
+        "loginSuccess": "Lumii を設定しました。",
+        "logoutSuccess": "Lumii からログアウトしました。",
+        "logoutFailed": "ログアウト失敗: {{error}}"
     }
 }

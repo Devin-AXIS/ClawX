@@ -27,7 +27,8 @@ function getBundledUvPath(): string {
  *
  * In packaged mode we always prefer the bundled binary so we never accidentally
  * pick up a system-wide uv that may be a different (possibly broken) version.
- * In dev we fall through to the system PATH for convenience.
+ * In dev we prefer the bundled binary when `pnpm run uv:download` has been run,
+ * then fall back to `uv` on PATH. Never return the bare name `uv` unless PATH lookup succeeded.
  */
 function resolveUvBin(): { bin: string; source: 'bundled' | 'path' | 'bundled-fallback' } {
   const bundled = getBundledUvPath();
@@ -37,17 +38,19 @@ function resolveUvBin(): { bin: string; source: 'bundled' | 'path' | 'bundled-fa
       return { bin: bundled, source: 'bundled' };
     }
     logger.warn(`Bundled uv binary not found at ${bundled}, falling back to system PATH`);
-  }
-
-  // Dev mode or missing bundled binary — check system PATH
-  const found = findUvInPathSync();
-  if (found) return { bin: 'uv', source: 'path' };
-
-  if (existsSync(bundled)) {
+  } else if (existsSync(bundled)) {
     return { bin: bundled, source: 'bundled-fallback' };
   }
 
-  return { bin: 'uv', source: 'path' };
+  const found = findUvInPathSync();
+  if (found) {
+    return { bin: 'uv', source: 'path' };
+  }
+
+  throw new Error(
+    `uv not found. From the ClawX repo run \`pnpm run uv:download\` (installs resources/bin/${process.platform}-${process.arch}/uv), ` +
+      `or install uv globally so it is on your PATH: https://github.com/astral-sh/uv — expected bundled path: ${bundled}`,
+  );
 }
 
 function findUvInPathSync(): boolean {
@@ -64,11 +67,15 @@ function findUvInPathSync(): boolean {
  * Check if uv is available (either bundled or in system PATH)
  */
 export async function checkUvInstalled(): Promise<boolean> {
-  const { bin, source } = resolveUvBin();
-  if (source === 'bundled' || source === 'bundled-fallback') {
-    return existsSync(bin);
+  try {
+    const { bin, source } = resolveUvBin();
+    if (source === 'bundled' || source === 'bundled-fallback') {
+      return existsSync(bin);
+    }
+    return findUvInPathSync();
+  } catch {
+    return false;
   }
-  return findUvInPathSync();
 }
 
 /**
@@ -79,7 +86,10 @@ export async function installUv(): Promise<void> {
   const isAvailable = await checkUvInstalled();
   if (!isAvailable) {
     const bin = getBundledUvPath();
-    throw new Error(`uv not found in system PATH and bundled binary missing at ${bin}`);
+    throw new Error(
+      `uv not found. Run \`pnpm run uv:download\` from the ClawX repo (expected at ${bin}), ` +
+        'or install uv on your PATH: https://github.com/astral-sh/uv',
+    );
   }
   logger.info('uv is available and ready to use');
 }
@@ -88,7 +98,12 @@ export async function installUv(): Promise<void> {
  * Check if a managed Python 3.12 is ready and accessible
  */
 export async function isPythonReady(): Promise<boolean> {
-  const { bin: uvBin } = resolveUvBin();
+  let uvBin: string;
+  try {
+    ({ bin: uvBin } = resolveUvBin());
+  } catch {
+    return false;
+  }
   const useShell = needsWinShell(uvBin);
 
   return new Promise<boolean>((resolve) => {

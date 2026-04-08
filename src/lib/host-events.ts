@@ -18,6 +18,9 @@ const HOST_EVENT_TO_IPC_CHANNEL: Record<string, string> = {
   'channel:wechat-qr': 'channel:wechat-qr',
   'channel:wechat-success': 'channel:wechat-success',
   'channel:wechat-error': 'channel:wechat-error',
+  'channel:openclaw-lumii-qr': 'channel:openclaw-lumii-qr',
+  'channel:openclaw-lumii-success': 'channel:openclaw-lumii-success',
+  'channel:openclaw-lumii-error': 'channel:openclaw-lumii-error',
 };
 
 function getEventSource(): EventSource {
