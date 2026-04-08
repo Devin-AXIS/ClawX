@@ -40,6 +40,7 @@ import {
   toUiChannelType,
 } from '../../utils/channel-alias';
 import { getOpenClawConfigDir } from '../../utils/paths';
+import { logger } from '../../utils/logger';
 import {
   cancelWeChatLoginSession,
   saveWeChatAccountState,
@@ -47,6 +48,7 @@ import {
   waitForWeChatLoginSession,
 } from '../../utils/wechat-login';
 import { whatsAppLoginManager } from '../../utils/whatsapp-login';
+import { cancelOpenclawLumiiQrLogin, startOpenclawLumiiQrLogin } from '../../utils/lumii-qr-login';
 import { proxyAwareFetch } from '../../utils/proxy-fetch';
 import {
   listDiscordDirectoryGroupsFromConfig,
@@ -393,14 +395,29 @@ async function buildChannelAccountsView(ctx: HostApiContext): Promise<ChannelAcc
       .map((account) => account.accountId)
       .filter((accountId): accountId is string => typeof accountId === 'string' && accountId.trim().length > 0);
     const accountIds = Array.from(new Set([...channelAccountsFromConfig, ...runtimeAccountIds, defaultAccountId]));
+    const accountsSection = channelSection?.accounts as Record<string, JsonRecord> | undefined;
 
     const accounts: ChannelAccountView[] = accountIds.map((accountId) => {
       const runtime = runtimeAccounts.find((item) => item.accountId === accountId);
       const runtimeSnapshot: ChannelRuntimeAccountSnapshot = runtime ?? {};
       const status = computeChannelRuntimeStatus(runtimeSnapshot);
+      const perAccountCfg = accountsSection?.[accountId];
+      const lumiiSavedName =
+        rawChannelType === 'openclaw-lumii' &&
+        perAccountCfg &&
+        typeof perAccountCfg.metaioAccountDisplayName === 'string'
+          ? perAccountCfg.metaioAccountDisplayName.trim()
+          : '';
+      /** Prefer login-saved display name; gateway `name` is often uid-like and hides Metaio username. */
+      const displayName =
+        rawChannelType === 'openclaw-lumii'
+          ? (lumiiSavedName
+              || (typeof runtime?.name === 'string' && runtime.name.trim() ? runtime.name.trim() : '')
+              || accountId)
+          : ((typeof runtime?.name === 'string' && runtime.name.trim()) ? runtime.name.trim() : accountId);
       return {
         accountId,
-        name: runtime?.name || accountId,
+        name: displayName,
         configured: channelAccountsFromConfig.includes(accountId) || runtime?.configured === true,
         connected: runtime?.connected === true,
         running: runtime?.running === true,
@@ -1102,8 +1119,16 @@ export async function handleChannelRoutes(
 
   if (url.pathname === '/api/channels/credentials/validate' && req.method === 'POST') {
     try {
-      const body = await parseJsonBody<{ channelType: string; config: Record<string, string> }>(req);
-      sendJson(res, 200, { success: true, ...(await validateChannelCredentials(body.channelType, body.config)) });
+      const body = await parseJsonBody<{
+        channelType: string;
+        config: Record<string, string>;
+        accountId?: string;
+      }>(req);
+      const accountId = body.accountId?.trim() || undefined;
+      sendJson(res, 200, {
+        success: true,
+        ...(await validateChannelCredentials(body.channelType, body.config, accountId)),
+      });
     } catch (error) {
       sendJson(res, 500, { success: false, valid: false, errors: [String(error)], warnings: [] });
     }
@@ -1124,6 +1149,43 @@ export async function handleChannelRoutes(
   if (url.pathname === '/api/channels/whatsapp/cancel' && req.method === 'POST') {
     try {
       await whatsAppLoginManager.stop();
+      sendJson(res, 200, { success: true });
+    } catch (error) {
+      sendJson(res, 500, { success: false, error: String(error) });
+    }
+    return true;
+  }
+
+  if (url.pathname === '/api/channels/openclaw-lumii/start' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody<{ accountId?: string; config?: Record<string, unknown> }>(req);
+      const requestedAccountId = body.accountId?.trim() || undefined;
+      logger.info('[openclaw-lumii][qr] host API POST /api/channels/openclaw-lumii/start', {
+        accountId: requestedAccountId ?? '(default)',
+      });
+      /** Do not call saveChannelConfig here — that would add the account to openclaw.json before Metaio login succeeds. Persist on QR success via renderer POST /api/channels/config. */
+      await startOpenclawLumiiQrLogin(
+        {
+          eventBus: ctx.eventBus,
+          mainWindow: ctx.mainWindow,
+        },
+        requestedAccountId,
+      );
+      sendJson(res, 200, { success: true });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error('[openclaw-lumii][qr] start failed', { error: msg });
+      console.error('[openclaw-lumii][qr] start failed:', msg);
+      sendJson(res, 500, { success: false, error: String(error) });
+    }
+    return true;
+  }
+
+  if (url.pathname === '/api/channels/openclaw-lumii/cancel' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody<{ accountId?: string }>(req);
+      const accountId = body.accountId?.trim() || undefined;
+      cancelOpenclawLumiiQrLogin(accountId);
       sendJson(res, 200, { success: true });
     } catch (error) {
       sendJson(res, 500, { success: false, error: String(error) });

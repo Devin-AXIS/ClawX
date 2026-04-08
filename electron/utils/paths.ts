@@ -108,6 +108,29 @@ export function getPreloadPath(): string {
   return join(__dirname, '../preload/index.js');
 }
 
+function hasOpenClawPackageJson(dir: string): boolean {
+  return existsSync(join(dir, 'package.json'));
+}
+
+/**
+ * Resolve `node_modules/openclaw` in development.
+ * Prefer `app.getAppPath()` (project root) so resolution matches other CLI paths and
+ * survives pnpm layouts; fall back to the bundled main dir and `process.cwd()`.
+ */
+function resolveDevOpenClawDir(): string {
+  const candidates = [
+    join(getElectronApp().getAppPath(), 'node_modules', 'openclaw'),
+    join(__dirname, '../../node_modules/openclaw'),
+    join(process.cwd(), 'node_modules', 'openclaw'),
+  ];
+  for (const dir of candidates) {
+    if (hasOpenClawPackageJson(dir)) {
+      return dir;
+    }
+  }
+  return candidates[0];
+}
+
 /**
  * Get OpenClaw package directory
  * - Production (packaged): from resources/openclaw (copied by electron-builder extraResources)
@@ -117,8 +140,7 @@ export function getOpenClawDir(): string {
   if (getElectronApp().isPackaged) {
     return join(process.resourcesPath, 'openclaw');
   }
-  // Development: use node_modules/openclaw
-  return join(__dirname, '../../node_modules/openclaw');
+  return resolveDevOpenClawDir();
 }
 
 /**

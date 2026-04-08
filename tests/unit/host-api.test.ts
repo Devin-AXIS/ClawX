@@ -32,6 +32,22 @@ describe('host-api', () => {
     );
   });
 
+  it('throws with Host API body error when unified envelope HTTP status is 4xx/5xx', async () => {
+    invokeIpcMock.mockResolvedValueOnce({
+      ok: true,
+      data: {
+        status: 500,
+        ok: false,
+        json: { success: false, error: 'Metaio QR start 502: bad gateway' },
+      },
+    });
+
+    const { hostApiFetch } = await import('@/lib/host-api');
+    await expect(hostApiFetch('/api/channels/openclaw-lumii/start', { method: 'POST', body: '{}' })).rejects.toThrow(
+      'Metaio QR start 502: bad gateway',
+    );
+  });
+
   it('supports legacy proxy envelope response', async () => {
     invokeIpcMock.mockResolvedValueOnce({
       success: true,

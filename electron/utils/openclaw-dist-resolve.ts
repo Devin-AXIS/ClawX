@@ -49,3 +49,36 @@ export function resolveOpenClawDistFile(
     `OpenClaw dist: could not find a module for "${cacheKey}" (marker lost after openclaw upgrade?).`,
   );
 }
+
+export type DistFileAttempt = { marker: string; nameFilter: (name: string) => boolean };
+
+/**
+ * Try several marker/nameFilter pairs (newer OpenClaw layouts first). Stops at the first matching file.
+ */
+export function resolveOpenClawDistFileFirstMatch(
+  openclawDistDir: string,
+  cacheKey: string,
+  attempts: DistFileAttempt[],
+): string {
+  const ck = `${openclawDistDir}\0${cacheKey}`;
+  const hit = RESOLVED_DIST_FILE_CACHE.get(ck);
+  if (hit) return hit;
+
+  const names = readdirSync(openclawDistDir).filter((n) => n.endsWith('.js'));
+
+  for (const { marker, nameFilter } of attempts) {
+    for (const name of names) {
+      if (!nameFilter(name)) continue;
+      const abs = join(openclawDistDir, name);
+      const slice = readOpenClawDistFileSlice(abs);
+      if (slice.includes(marker)) {
+        RESOLVED_DIST_FILE_CACHE.set(ck, abs);
+        return abs;
+      }
+    }
+  }
+
+  throw new Error(
+    `OpenClaw dist: could not find a module for "${cacheKey}" (marker lost after openclaw upgrade?).`,
+  );
+}

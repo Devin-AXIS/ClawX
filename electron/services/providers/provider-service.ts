@@ -135,7 +135,24 @@ export class ProviderService {
     return result;
   }
 
-
+  /**
+   * Accounts from {@link listAccounts} plus keyring summary (`hasKey`, `keyMasked`)
+   * for each account. Prefer this over legacy `listLegacyProvidersWithKeyInfo`.
+   */
+  async listAccountsWithKeyInfo(): Promise<ProviderWithKeyInfo[]> {
+    const accounts = await this.listAccounts();
+    const results: ProviderWithKeyInfo[] = [];
+    for (const account of accounts) {
+      const provider = providerAccountToConfig(account);
+      const apiKey = await getApiKey(provider.id);
+      results.push({
+        ...provider,
+        hasKey: !!apiKey,
+        keyMasked: maskApiKey(apiKey),
+      });
+    }
+    return results;
+  }
 
   /**
    * Build ProviderAccount objects from OpenClaw config entries, skipping any
@@ -273,21 +290,10 @@ export class ProviderService {
   }
 
   /**
-   * @deprecated Use listAccounts() + secret-store based key summary.
+   * @deprecated Use {@link listAccountsWithKeyInfo}.
    */
   async listLegacyProvidersWithKeyInfo(): Promise<ProviderWithKeyInfo[]> {
-    logLegacyProviderApiUsage('listLegacyProvidersWithKeyInfo', 'listAccounts');
-    const providers = await this.listLegacyProviders();
-    const results: ProviderWithKeyInfo[] = [];
-    for (const provider of providers) {
-      const apiKey = await getApiKey(provider.id);
-      results.push({
-        ...provider,
-        hasKey: !!apiKey,
-        keyMasked: maskApiKey(apiKey),
-      });
-    }
-    return results;
+    return this.listAccountsWithKeyInfo();
   }
 
   /**

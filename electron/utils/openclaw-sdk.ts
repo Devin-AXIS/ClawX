@@ -15,7 +15,7 @@
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { getOpenClawDir, getOpenClawResolvedDir } from './paths';
-import { resolveOpenClawDistFile } from './openclaw-dist-resolve';
+import { resolveOpenClawDistFile, resolveOpenClawDistFileFirstMatch } from './openclaw-dist-resolve';
 
 const _openclawPath = getOpenClawDir();
 const _openclawResolvedPath = getOpenClawResolvedDir();
@@ -36,14 +36,18 @@ function requireOpenClawDistAbs(absPath: string): Record<string, unknown> {
   return _openclawSdkRequire(absPath) as Record<string, unknown>;
 }
 
-/** Discord directory listers (hashed chunk name changes between OpenClaw releases). */
+/** Discord directory listers — OpenClaw alternates between directory-config-* and status-issues-* chunks. */
 const _discordDir = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'discord-directory',
-    'listDiscordDirectoryPeersFromConfig as a, listDiscordDirectoryGroupsFromConfig as i',
-    (n) => n.startsWith('status-issues-'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'discord-directory', [
+    {
+      marker: 'listDiscordDirectoryPeersFromConfig as n, listDiscordDirectoryGroupsFromConfig as t',
+      nameFilter: (n) => n.startsWith('directory-config-') && !n.includes('helpers'),
+    },
+    {
+      marker: 'listDiscordDirectoryPeersFromConfig as a, listDiscordDirectoryGroupsFromConfig as i',
+      nameFilter: (n) => n.startsWith('status-issues-'),
+    },
+  ]),
 );
 const _discordNorm = requireOpenClawDistAbs(
   resolveOpenClawDistFile(
@@ -58,30 +62,41 @@ const _discordNorm = requireOpenClawDistAbs(
 );
 
 const _slackDir = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'slack-directory',
-    // Export order in threading-tool-context-*.js is groups → peers, not peers → groups.
-    'listSlackDirectoryPeersFromConfig as r',
-    (n) => n.startsWith('threading-tool-context-'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'slack-directory', [
+    {
+      marker: 'listSlackDirectoryPeersFromConfig as n, listSlackDirectoryGroupsFromConfig as t',
+      nameFilter: (n) => n.startsWith('directory-config-') && !n.includes('helpers'),
+    },
+    {
+      marker: 'listSlackDirectoryPeersFromConfig as r',
+      nameFilter: (n) => n.startsWith('threading-tool-context-'),
+    },
+  ]),
 );
 const _slackNorm = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'slack-normalize',
-    'normalizeSlackMessagingTarget as n',
-    (n) => n.startsWith('slack-targets-'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'slack-normalize', [
+    {
+      marker: 'normalizeSlackMessagingTarget as n',
+      nameFilter: (n) => n.startsWith('target-parsing-'),
+    },
+    {
+      marker: 'normalizeSlackMessagingTarget as n',
+      nameFilter: (n) => n.startsWith('slack-targets-'),
+    },
+  ]),
 );
 
 const _waNorm = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'whatsapp-normalize',
-    'normalizeWhatsAppAllowFromEntries as n, normalizeWhatsAppMessagingTarget as r',
-    (n) => n.startsWith('whatsapp-') && !n.includes('targets'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'whatsapp-normalize', [
+    {
+      marker: 'normalizeWhatsAppMessagingTarget as a',
+      nameFilter: (n) => n.startsWith('normalize-target-'),
+    },
+    {
+      marker: 'normalizeWhatsAppAllowFromEntries as n, normalizeWhatsAppMessagingTarget as r',
+      nameFilter: (n) => n.startsWith('whatsapp-') && !n.includes('targets'),
+    },
+  ]),
 );
 
 const { createInspectedDirectoryEntriesLister } = requireOpenClawPackageExport(
@@ -98,27 +113,29 @@ const { createInspectedDirectoryEntriesLister } = requireOpenClawPackageExport(
 };
 
 const _accountInspectTg = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'telegram-account-inspect',
-    'export { inspectTelegramAccount as t }',
-    (n) => n.startsWith('account-inspect-'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'telegram-account-inspect', [
+    {
+      marker: 'inspectTelegramAccount as a',
+      nameFilter: (n) => n.startsWith('shared-') && !n.includes('shared-runtime'),
+    },
+    {
+      marker: 'export { inspectTelegramAccount as t }',
+      nameFilter: (n) => n.startsWith('account-inspect-'),
+    },
+  ]),
 );
-const inspectTelegramAccount = _accountInspectTg.t as (params: {
+const inspectTelegramAccount = (_accountInspectTg.a ?? _accountInspectTg.t) as (params: {
   cfg: unknown;
   accountId: string | undefined;
 }) => { config: { allowFrom?: unknown; dms?: Record<string, unknown>; groups?: Record<string, unknown> } };
 
 const _chHelpers = requireOpenClawDistAbs(
-  resolveOpenClawDistFile(
-    _openclawDist,
-    'channel-config-helpers',
-    'mapAllowFromEntries as g',
-    (n) => n.startsWith('channel-config-helpers-'),
-  ),
+  resolveOpenClawDistFileFirstMatch(_openclawDist, 'channel-config-helpers', [
+    { marker: 'mapAllowFromEntries as h', nameFilter: (n) => n.startsWith('channel-config-helpers-') },
+    { marker: 'mapAllowFromEntries as g', nameFilter: (n) => n.startsWith('channel-config-helpers-') },
+  ]),
 );
-const mapAllowFromEntries = _chHelpers.g as (allowFrom: unknown) => unknown[];
+const mapAllowFromEntries = (_chHelpers.h ?? _chHelpers.g) as (allowFrom: unknown) => unknown[];
 
 const _tgTargets = requireOpenClawDistAbs(
   resolveOpenClawDistFile(
@@ -178,16 +195,17 @@ const listTelegramDirectoryGroupsFromConfig = createInspectedDirectoryEntriesLis
   normalizeId: (entry: string) => entry.trim() || null,
 });
 
-export const listDiscordDirectoryPeersFromConfig = _discordDir.a as (params: unknown) => Promise<unknown[]>;
-export const listDiscordDirectoryGroupsFromConfig = _discordDir.i as (params: unknown) => Promise<unknown[]>;
+export const listDiscordDirectoryPeersFromConfig = (_discordDir.n ?? _discordDir.a) as (params: unknown) => Promise<unknown[]>;
+export const listDiscordDirectoryGroupsFromConfig = (_discordDir.t ?? _discordDir.i) as (params: unknown) => Promise<unknown[]>;
 
 export const normalizeDiscordMessagingTarget = _discordNorm.n as (target: string) => string | undefined;
 
 export { listTelegramDirectoryGroupsFromConfig, listTelegramDirectoryPeersFromConfig, normalizeTelegramMessagingTarget };
 
-export const listSlackDirectoryPeersFromConfig = _slackDir.r as (params: unknown) => Promise<unknown[]>;
-export const listSlackDirectoryGroupsFromConfig = _slackDir.n as (params: unknown) => Promise<unknown[]>;
+/** directory-config: n=peers, t=groups — threading-tool-context: r=peers, n=groups */
+export const listSlackDirectoryPeersFromConfig = (_slackDir.r ?? _slackDir.n) as (params: unknown) => Promise<unknown[]>;
+export const listSlackDirectoryGroupsFromConfig = (_slackDir.t ?? _slackDir.n) as (params: unknown) => Promise<unknown[]>;
 
 export const normalizeSlackMessagingTarget = _slackNorm.n as (target: string) => string | undefined;
 
-export const normalizeWhatsAppMessagingTarget = _waNorm.r as (target: string) => string | undefined;
+export const normalizeWhatsAppMessagingTarget = (_waNorm.a ?? _waNorm.r) as (target: string) => string | undefined;

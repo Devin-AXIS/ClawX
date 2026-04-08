@@ -37,5 +37,25 @@
         "withinTwoWeeks": "两周内",
         "withinMonth": "一个月内",
         "older": "一个月之前"
+    },
+    "lumii": {
+        "login": "Lumii 登录",
+        "logout": "退出",
+        "dialogTitle": "登录 Lumii (Metaio)",
+        "dialogDescription": "登录成功后将自动保存并配置 Lumii 频道。",
+        "username": "账号",
+        "usernamePlaceholder": "Metaio 用户名",
+        "password": "密码",
+        "passwordPlaceholder": "密码",
+        "cancel": "取消",
+        "submit": "登录并配置",
+        "connecting": "连接中…",
+        "missingCredentials": "请输入账号和密码。",
+        "loginFailed": "登录失败。",
+        "loginFailedWithError": "登录失败：{{error}}",
+        "noUid": "未返回账号标识，请重试。",
+        "loginSuccess": "已配置 Lumii。",
+        "logoutSuccess": "已退出 Lumii。",
+        "logoutFailed": "退出失败：{{error}}"
     }
 }

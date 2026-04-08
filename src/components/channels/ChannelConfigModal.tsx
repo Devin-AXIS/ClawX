@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -22,12 +23,15 @@ import { useChannelsStore } from '@/stores/channels';
 
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
+import { encodeUrlAsQrDataUrl, isProbablyDirectImageUrl } from '@/lib/encode-url-qr-data-url';
 import { cn } from '@/lib/utils';
+import { normalizeOpenclawLumiiFormValues } from '@/lib/lumii-form';
 import {
   CHANNEL_ICONS,
   CHANNEL_NAMES,
   CHANNEL_META,
   getPrimaryChannels,
+  isChannelConfigFieldVisible,
   type ChannelType,
   type ChannelMeta,
   type ChannelConfigField,
@@ -96,6 +100,8 @@ export function ChannelConfigModal({
   } | null>(null);
 
   const meta: ChannelMeta | null = selectedType ? CHANNEL_META[selectedType] : null;
+  const lumiiQrMode = selectedType === 'openclaw-lumii' && configValues.metaioLoginMode === 'qr';
+  const isQrLikeFlow = meta?.connectionType === 'qr' || lumiiQrMode;
   const shouldUseCredentialValidation = selectedType !== 'feishu';
   const usesManagedQrAccounts = usesPluginManagedQrAccounts(selectedType);
   const showAccountIdEditor = allowEditAccountId && !usesManagedQrAccounts;
@@ -126,7 +132,7 @@ export function ChannelConfigModal({
 
     const shouldLoadExistingConfig = allowExistingConfig && configuredTypes.includes(selectedType);
     if (!shouldLoadExistingConfig) {
-      setConfigValues({});
+      setConfigValues(selectedType === 'openclaw-lumii' ? normalizeOpenclawLumiiFormValues({}) : {});
       setIsExistingConfig(false);
       setLoadingConfig(false);
       setChannelName(showChannelName ? CHANNEL_NAMES[selectedType] : '');
@@ -134,7 +140,11 @@ export function ChannelConfigModal({
     }
 
     if (initialConfigValues) {
-      setConfigValues(initialConfigValues);
+      setConfigValues(
+        selectedType === 'openclaw-lumii'
+          ? normalizeOpenclawLumiiFormValues(initialConfigValues)
+          : initialConfigValues,
+      );
       setIsExistingConfig(Object.keys(initialConfigValues).length > 0);
       setLoadingConfig(false);
       setChannelName(showChannelName ? CHANNEL_NAMES[selectedType] : '');
@@ -154,15 +164,19 @@ export function ChannelConfigModal({
         if (cancelled) return;
 
         if (result.success && result.values && Object.keys(result.values).length > 0) {
-          setConfigValues(result.values);
+          setConfigValues(
+            selectedType === 'openclaw-lumii'
+              ? normalizeOpenclawLumiiFormValues(result.values)
+              : result.values,
+          );
           setIsExistingConfig(true);
         } else {
-          setConfigValues({});
+          setConfigValues(selectedType === 'openclaw-lumii' ? normalizeOpenclawLumiiFormValues({}) : {});
           setIsExistingConfig(false);
         }
       } catch {
         if (!cancelled) {
-          setConfigValues({});
+          setConfigValues(selectedType === 'openclaw-lumii' ? normalizeOpenclawLumiiFormValues({}) : {});
           setIsExistingConfig(false);
         }
       } finally {
@@ -191,7 +205,12 @@ export function ChannelConfigModal({
       await addChannel({
         type: channelType,
         name: displayName,
-        token: meta?.configFields[0]?.key ? configValues[meta.configFields[0].key] : undefined,
+        token:
+          channelType === 'openclaw-lumii'
+            ? undefined
+            : meta?.configFields[0]?.key
+              ? configValues[meta.configFields[0].key]
+              : undefined,
       });
     } else {
       await fetchChannels();
@@ -216,6 +235,11 @@ export function ChannelConfigModal({
     translateRef.current = t;
   }, [t]);
 
+  const configValuesRef = useRef(configValues);
+  useEffect(() => {
+    configValuesRef.current = configValues;
+  }, [configValues]);
+
   function normalizeQrImageSource(data: { qr?: string; raw?: string }): string | null {
     const qr = typeof data.qr === 'string' ? data.qr.trim() : '';
     if (qr) {
@@ -234,19 +258,36 @@ export function ChannelConfigModal({
   }
 
   useEffect(() => {
-    if (!selectedType || meta?.connectionType !== 'qr') return;
+    if (!selectedType || !isQrLikeFlow) return;
     const channelType = selectedType;
 
     const onQr = (...args: unknown[]) => {
-      const data = args[0] as { qr?: string; raw?: string };
-      const nextQr = normalizeQrImageSource(data);
-      if (!nextQr) return;
-      setQrCode(nextQr);
-      setConnecting(false);
+      void (async () => {
+        const data = args[0] as { qr?: string; raw?: string };
+        const nextQr = normalizeQrImageSource(data);
+        if (!nextQr) return;
+        let displaySrc = nextQr;
+        if (
+          channelType === 'openclaw-lumii'
+          && /^https?:\/\//i.test(nextQr)
+          && !isProbablyDirectImageUrl(nextQr)
+        ) {
+          try {
+            displaySrc = await encodeUrlAsQrDataUrl(nextQr);
+          } catch (e) {
+            console.warn('Failed to generate QR matrix for Lumii link', e);
+            toast.error(translateRef.current('toast.configFailed', { error: String(e) }));
+            setConnecting(false);
+            return;
+          }
+        }
+        setQrCode(displaySrc);
+        setConnecting(false);
+      })();
     };
 
     const onSuccess = async (...args: unknown[]) => {
-      const data = args[0] as { accountId?: string } | undefined;
+      const data = args[0] as { accountId?: string; metaioDisplayName?: string } | undefined;
       void data?.accountId;
       toast.success(translateRef.current('toast.qrConnected', { name: CHANNEL_NAMES[channelType] }));
       try {
@@ -257,6 +298,30 @@ export function ChannelConfigModal({
           });
           if (!saveResult?.success) {
             throw new Error(saveResult?.error || 'Failed to save WhatsApp config');
+          }
+        }
+        if (channelType === 'openclaw-lumii') {
+          const v = normalizeOpenclawLumiiFormValues(configValuesRef.current);
+          /** Metaio uid from QR poll success — not configured in the form. */
+          const backendAccountId = data?.accountId?.trim();
+          const display = data?.metaioDisplayName?.trim();
+          const saveResult = await hostApiFetch<{ success?: boolean; error?: string }>('/api/channels/config', {
+            method: 'POST',
+            body: JSON.stringify({
+              channelType: 'openclaw-lumii',
+              config: {
+                ...v,
+                enabled: true,
+                metaioLoginMode: 'qr',
+                metaioUsername: '',
+                metaioPassword: '',
+                ...(display ? { metaioAccountDisplayName: display } : {}),
+              },
+              accountId: backendAccountId || resolvedAccountId,
+            }),
+          });
+          if (!saveResult?.success) {
+            throw new Error(saveResult?.error || 'Failed to save Lumii config');
           }
         }
 
@@ -295,7 +360,7 @@ export function ChannelConfigModal({
         body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
       }).catch(() => { });
     };
-  }, [meta?.connectionType, resolvedAccountId, selectedType]);
+  }, [isQrLikeFlow, meta?.connectionType, resolvedAccountId, selectedType]);
 
   const handleValidate = async () => {
     if (!selectedType || !shouldUseCredentialValidation) return;
@@ -312,7 +377,11 @@ export function ChannelConfigModal({
         details?: Record<string, string>;
       }>('/api/channels/credentials/validate', {
         method: 'POST',
-        body: JSON.stringify({ channelType: selectedType, config: configValues }),
+        body: JSON.stringify({
+          channelType: selectedType,
+          config: configValues,
+          ...(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
+        }),
       });
 
       const warnings = result.warnings || [];
@@ -346,6 +415,9 @@ export function ChannelConfigModal({
     setValidationResult(null);
 
     try {
+      let metaioUidFromValidate: string | undefined;
+      let metaioDisplayNameFromValidate: string | undefined;
+
       if (showAccountIdEditor) {
         const nextAccountId = accountIdInput.trim();
         if (!nextAccountId) {
@@ -361,10 +433,24 @@ export function ChannelConfigModal({
         }
       }
 
-      if (meta.connectionType === 'qr') {
+      if (isQrLikeFlow) {
         await hostApiFetch(`/api/channels/${encodeURIComponent(selectedType)}/start`, {
           method: 'POST',
-          body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
+          body: JSON.stringify(
+            lumiiQrMode
+              ? {
+                  accountId: resolvedAccountId,
+                  config: {
+                    ...configValues,
+                    metaioLoginMode: 'qr' as const,
+                    metaioUsername: '',
+                    metaioPassword: '',
+                  },
+                }
+              : resolvedAccountId
+                ? { accountId: resolvedAccountId }
+                : {},
+          ),
         });
         return;
       }
@@ -378,7 +464,11 @@ export function ChannelConfigModal({
           details?: Record<string, string>;
         }>('/api/channels/credentials/validate', {
           method: 'POST',
-          body: JSON.stringify({ channelType: selectedType, config: configValues }),
+          body: JSON.stringify({
+            channelType: selectedType,
+            config: configValues,
+            ...(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
+          }),
         });
 
         if (!validationResponse.valid) {
@@ -389,6 +479,13 @@ export function ChannelConfigModal({
           });
           setConnecting(false);
           return;
+        }
+
+        if (selectedType === 'openclaw-lumii' && validationResponse.details?.metaioUid) {
+          metaioUidFromValidate = validationResponse.details.metaioUid;
+        }
+        if (selectedType === 'openclaw-lumii' && validationResponse.details?.metaioDisplayName?.trim()) {
+          metaioDisplayNameFromValidate = validationResponse.details.metaioDisplayName.trim();
         }
 
         const warnings = validationResponse.warnings || [];
@@ -406,14 +503,28 @@ export function ChannelConfigModal({
         });
       }
 
+      const saveAccountId =
+        selectedType === 'openclaw-lumii'
+          ? (resolvedAccountId ?? metaioUidFromValidate)
+          : resolvedAccountId;
+
+      if (selectedType === 'openclaw-lumii' && !saveAccountId) {
+        toast.error(t('toast.configFailed', { error: 'Metaio account id (uid) was not returned. Try again.' }));
+        setConnecting(false);
+        return;
+      }
+
       const config: Record<string, unknown> = { ...configValues };
+      if (selectedType === 'openclaw-lumii' && metaioDisplayNameFromValidate) {
+        config.metaioAccountDisplayName = metaioDisplayNameFromValidate;
+      }
       const saveResult = await hostApiFetch<{
         success?: boolean;
         error?: string;
         warning?: string;
       }>('/api/channels/config', {
         method: 'POST',
-        body: JSON.stringify({ channelType: selectedType, config, accountId: resolvedAccountId }),
+        body: JSON.stringify({ channelType: selectedType, config, accountId: saveAccountId }),
       });
       if (!saveResult?.success) {
         throw new Error(saveResult?.error || 'Failed to save channel config');
@@ -431,7 +542,7 @@ export function ChannelConfigModal({
 
       toast.success(t('toast.channelSaved', { name: meta.name }));
       toast.success(t('toast.channelConnecting', { name: meta.name }));
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      setConnecting(false);
       onClose();
     } catch (error) {
       toast.error(t('toast.configFailed', { error: String(error) }));
@@ -456,12 +567,26 @@ export function ChannelConfigModal({
   const isFormValid = () => {
     if (!meta) return false;
     return meta.configFields
-      .filter((field) => field.required)
+      .filter(
+        (field) =>
+          field.required && isChannelConfigFieldVisible(field, configValues),
+      )
       .every((field) => configValues[field.key]?.trim());
   };
 
   const updateConfigValue = (key: string, value: string) => {
-    setConfigValues((prev) => ({ ...prev, [key]: value }));
+    setConfigValues((prev) => {
+      const next = { ...prev, [key]: value };
+      if (
+        selectedType === 'openclaw-lumii'
+        && key === 'metaioLoginMode'
+        && value === 'qr'
+      ) {
+        next.metaioUsername = '';
+        next.metaioPassword = '';
+      }
+      return next;
+    });
   };
 
   const toggleSecretVisibility = (key: string) => {
@@ -649,16 +774,18 @@ export function ChannelConfigModal({
               )}
 
               <div className="space-y-4">
-                {meta?.configFields.map((field) => (
-                  <ConfigField
-                    key={field.key}
-                    field={field}
-                    value={configValues[field.key] || ''}
-                    onChange={(value) => updateConfigValue(field.key, value)}
-                    showSecret={showSecrets[field.key] || false}
-                    onToggleSecret={() => toggleSecretVisibility(field.key)}
-                  />
-                ))}
+                {meta?.configFields
+                  .filter((field) => isChannelConfigFieldVisible(field, configValues))
+                  .map((field) => (
+                    <ConfigField
+                      key={field.key}
+                      field={field}
+                      value={configValues[field.key] || ''}
+                      onChange={(value) => updateConfigValue(field.key, value)}
+                      showSecret={showSecrets[field.key] || false}
+                      onToggleSecret={() => toggleSecretVisibility(field.key)}
+                    />
+                  ))}
               </div>
 
               {validationResult && (
@@ -743,9 +870,9 @@ export function ChannelConfigModal({
                     {connecting ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        {meta?.connectionType === 'qr' ? t('dialog.generatingQR') : t('dialog.validatingAndSaving')}
+                        {isQrLikeFlow ? t('dialog.generatingQR') : t('dialog.validatingAndSaving')}
                       </>
-                    ) : meta?.connectionType === 'qr' ? (
+                    ) : isQrLikeFlow ? (
                       t('dialog.generateQRCode')
                     ) : (
                       <>
@@ -798,6 +925,80 @@ function ChannelLogo({ type }: { type: ChannelType }) {
 function ConfigField({ field, value, onChange, showSecret, onToggleSecret }: ConfigFieldProps) {
   const { t } = useTranslation('channels');
   const isPassword = field.type === 'password';
+
+  if (field.type === 'segmented' && field.options && field.options.length >= 2) {
+    return (
+      <div className="space-y-2.5">
+        <div className={labelClasses}>
+          {t(field.label)}
+          {field.required && <span className="text-destructive ml-1">*</span>}
+        </div>
+        <div
+          className={cn(
+            'flex p-1 gap-1 rounded-xl border border-black/10 dark:border-white/10',
+            'bg-[#e8e6df] dark:bg-muted/80',
+          )}
+          role="group"
+          aria-label={t(field.label)}
+        >
+          {field.options.map((opt) => {
+            const selected = value === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => onChange(opt.value)}
+                className={cn(
+                  'flex-1 min-h-[44px] px-3 rounded-lg text-[13px] font-medium transition-colors',
+                  selected
+                    ? 'bg-[#f3f1e9] dark:bg-background text-foreground shadow-sm border border-black/10 dark:border-white/10'
+                    : 'text-foreground/70 hover:text-foreground hover:bg-black/[0.04] dark:hover:bg-white/[0.06]',
+                )}
+              >
+                {t(opt.label)}
+              </button>
+            );
+          })}
+        </div>
+        {field.description && (
+          <p className="text-[13px] text-muted-foreground leading-relaxed">
+            {t(field.description)}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (field.type === 'select' && field.options?.length) {
+    return (
+      <div className="space-y-2.5">
+        <Label htmlFor={field.key} className={labelClasses}>
+          {t(field.label)}
+          {field.required && <span className="text-destructive ml-1">*</span>}
+        </Label>
+        <Select
+          id={field.key}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          className={cn(inputClasses, 'h-[44px]')}
+        >
+          {field.placeholder ? (
+            <option value="">{t(field.placeholder)}</option>
+          ) : null}
+          {field.options.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {t(opt.label)}
+            </option>
+          ))}
+        </Select>
+        {field.description && (
+          <p className="text-[13px] text-muted-foreground leading-relaxed">
+            {t(field.description)}
+          </p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2.5">
