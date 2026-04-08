@@ -21,6 +21,7 @@ export type ChannelType =
   | 'msteams'
   | 'googlechat'
   | 'mattermost'
+  | 'openclaw-lumii'
   | 'qqbot';
 
 /**
@@ -54,12 +55,27 @@ export interface Channel {
 export interface ChannelConfigField {
   key: string;
   label: string;
-  type: 'text' | 'password' | 'select';
+  type: 'text' | 'password' | 'select' | 'segmented';
   placeholder?: string;
   required?: boolean;
   envVar?: string;
   description?: string;
   options?: { value: string; label: string }[];
+  /** When set, this field is shown only if `configValues[visibleWhen.key]` is one of `values`. */
+  visibleWhen?: { key: string; values: string[] };
+}
+
+/**
+ * Whether a channel config field should be shown given current form values (for conditional fields).
+ */
+export function isChannelConfigFieldVisible(
+  field: ChannelConfigField,
+  configValues: Record<string, string>,
+): boolean {
+  if (!field.visibleWhen) return true;
+  const raw = configValues[field.visibleWhen.key];
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  return field.visibleWhen.values.includes(v);
 }
 
 /**
@@ -95,6 +111,7 @@ export const CHANNEL_ICONS: Record<ChannelType, string> = {
   msteams: '👔',
   googlechat: '💭',
   mattermost: '💠',
+  'openclaw-lumii': '✨',
   qqbot: '🐧',
 };
 
@@ -116,6 +133,7 @@ export const CHANNEL_NAMES: Record<ChannelType, string> = {
   msteams: 'Microsoft Teams',
   googlechat: 'Google Chat',
   mattermost: 'Mattermost',
+  'openclaw-lumii': 'Lumii (Metaio)',
   qqbot: 'QQ Bot',
 };
 
@@ -570,6 +588,61 @@ export const CHANNEL_META: Record<ChannelType, ChannelMeta> = {
       'channels:meta.mattermost.instructions.0',
       'channels:meta.mattermost.instructions.1',
       'channels:meta.mattermost.instructions.2',
+    ],
+    isPlugin: true,
+  },
+  'openclaw-lumii': {
+    id: 'openclaw-lumii',
+    name: 'Lumii',
+    icon: '✨',
+    description: 'channels:meta.openclaw-lumii.description',
+    connectionType: 'qr',
+    docsUrl: 'channels:meta.openclaw-lumii.docsUrl',
+    configFields: [
+      {
+        key: 'channelUiNote',
+        label: 'channels:meta.openclaw-lumii.fields.channelUiNote.label',
+        type: 'text',
+        placeholder: 'channels:meta.openclaw-lumii.fields.channelUiNote.placeholder',
+        required: false,
+        description: 'channels:meta.openclaw-lumii.fields.channelUiNote.description',
+      },
+      {
+        key: 'metaioLoginMode',
+        label: 'channels:meta.openclaw-lumii.fields.metaioLoginMode.label',
+        type: 'segmented',
+        required: true,
+        description: 'channels:meta.openclaw-lumii.fields.metaioLoginMode.description',
+        options: [
+          { value: 'qr', label: 'channels:meta.openclaw-lumii.fields.metaioLoginMode.optionQr' },
+          { value: 'password', label: 'channels:meta.openclaw-lumii.fields.metaioLoginMode.optionPassword' },
+        ],
+      },
+      {
+        key: 'metaioUsername',
+        label: 'channels:meta.openclaw-lumii.fields.metaioUsername.label',
+        type: 'text',
+        placeholder: 'channels:meta.openclaw-lumii.fields.metaioUsername.placeholder',
+        required: true,
+        description: 'channels:meta.openclaw-lumii.fields.metaioUsername.description',
+        envVar: 'METAIO_USERNAME',
+        visibleWhen: { key: 'metaioLoginMode', values: ['password'] },
+      },
+      {
+        key: 'metaioPassword',
+        label: 'channels:meta.openclaw-lumii.fields.metaioPassword.label',
+        type: 'password',
+        placeholder: 'channels:meta.openclaw-lumii.fields.metaioPassword.placeholder',
+        required: true,
+        description: 'channels:meta.openclaw-lumii.fields.metaioPassword.description',
+        envVar: 'METAIO_PASSWORD',
+        visibleWhen: { key: 'metaioLoginMode', values: ['password'] },
+      },
+    ],
+    instructions: [
+      'channels:meta.openclaw-lumii.instructions.0',
+      'channels:meta.openclaw-lumii.instructions.1',
+      'channels:meta.openclaw-lumii.instructions.2',
     ],
     isPlugin: true,
   },
