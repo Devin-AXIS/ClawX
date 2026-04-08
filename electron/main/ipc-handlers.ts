@@ -179,7 +179,7 @@ function registerUnifiedRequestHandlers(gatewayManager: GatewayManager): void {
         }
         case 'provider': {
           if (request.action === 'list') {
-            data = await providerService.listAccountsWithKeyInfo();
+            data = await providerService.listLegacyProvidersWithKeyInfo();
             break;
           }
           if (request.action === 'get') {
@@ -1592,18 +1592,15 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
   });
 
   // Validate channel credentials by calling actual service APIs (before saving)
-  ipcMain.handle(
-    'channel:validateCredentials',
-    async (_, channelType: string, config: Record<string, string>, accountId?: string) => {
-      try {
-        const result = await validateChannelCredentials(channelType, config, accountId?.trim());
-        return { success: true, ...result };
-      } catch (error) {
-        console.error('Failed to validate channel credentials:', error);
-        return { success: false, valid: false, errors: [String(error)], warnings: [] };
-      }
-    },
-  );
+  ipcMain.handle('channel:validateCredentials', async (_, channelType: string, config: Record<string, string>) => {
+    try {
+      const result = await validateChannelCredentials(channelType, config);
+      return { success: true, ...result };
+    } catch (error) {
+      console.error('Failed to validate channel credentials:', error);
+      return { success: false, valid: false, errors: [String(error)], warnings: [] };
+    }
+  });
 }
 
 /**
@@ -1730,7 +1727,8 @@ function registerProviderHandlers(gatewayManager: GatewayManager): void {
 
   // Get all providers with key info
   ipcMain.handle('provider:list', async () => {
-    return await providerService.listAccountsWithKeyInfo();
+    logLegacyProviderChannel('provider:list');
+    return await providerService.listLegacyProvidersWithKeyInfo();
   });
 
   // New provider-service endpoints used by the account-based refactor.

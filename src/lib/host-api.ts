@@ -89,35 +89,15 @@ function parseUnifiedProxyResponse<T>(
   }
 
   const data: HostApiProxyData = response.data ?? {};
-  const httpStatus = data.status ?? 200;
   trackUiEvent('hostapi.fetch', {
     path,
     method,
     source: 'ipc-proxy',
     durationMs: Date.now() - startedAt,
-    status: httpStatus,
+    status: data.status ?? 200,
   });
 
-  if (httpStatus === 204) return undefined as T;
-
-  /** IPC proxy succeeded but the Host HTTP handler returned an error — must throw so callers (e.g. QR start) surface `error` and run catch/finally. */
-  if (httpStatus >= 400) {
-    let message = `HTTP ${httpStatus}`;
-    const payload = data.json;
-    if (payload && typeof payload === 'object' && payload !== null) {
-      const err = (payload as Record<string, unknown>).error;
-      if (typeof err === 'string' && err.trim()) message = err.trim();
-    } else if (typeof data.text === 'string' && data.text.trim()) {
-      try {
-        const parsed = JSON.parse(data.text) as Record<string, unknown>;
-        if (typeof parsed.error === 'string' && parsed.error.trim()) message = parsed.error.trim();
-      } catch {
-        message = data.text.slice(0, 500);
-      }
-    }
-    throw normalizeAppError(new Error(message), { source: 'ipc-proxy', path, method, status: httpStatus });
-  }
-
+  if (data.status === 204) return undefined as T;
   if (data.json !== undefined) return data.json as T;
   return data.text as T;
 }

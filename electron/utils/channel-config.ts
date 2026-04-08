@@ -11,13 +11,6 @@ import { homedir } from 'os';
 import { getOpenClawResolvedDir } from './paths';
 import * as logger from './logger';
 import { proxyAwareFetch } from './proxy-fetch';
-import { probeMetaioPasswordLogin } from './lumii-metaio-password-probe';
-import { saveLumiiAccountFile } from './lumii-qr-login';
-import {
-    assertMetaioUidUniqueForAccount,
-    clearOpenclawLumiiPluginAccountFiles,
-    removeLumiiAccountState,
-} from './lumii-metaio-uid';
 import { withConfigLock } from './config-mutex';
 import {
     OPENCLAW_WECHAT_CHANNEL_TYPE,
@@ -502,36 +495,6 @@ async function ensurePluginAllowlist(currentConfig: OpenClawConfig, channelType:
         }
         currentConfig.plugins.entries[WECHAT_PLUGIN_ID].enabled = true;
     }
-
-    if (channelType === 'openclaw-lumii') {
-        const LUMII_PLUGIN_ID = 'openclaw-lumii';
-        if (!currentConfig.plugins) {
-            currentConfig.plugins = {
-                allow: [LUMII_PLUGIN_ID],
-                enabled: true,
-                entries: {
-                    [LUMII_PLUGIN_ID]: { enabled: true },
-                },
-            };
-            return;
-        }
-
-        currentConfig.plugins.enabled = true;
-        const allow = Array.isArray(currentConfig.plugins.allow)
-            ? (currentConfig.plugins.allow as string[])
-            : [];
-        if (!allow.includes(LUMII_PLUGIN_ID)) {
-            currentConfig.plugins.allow = [...allow, LUMII_PLUGIN_ID];
-        }
-
-        if (!currentConfig.plugins.entries) {
-            currentConfig.plugins.entries = {};
-        }
-        if (!currentConfig.plugins.entries[LUMII_PLUGIN_ID]) {
-            currentConfig.plugins.entries[LUMII_PLUGIN_ID] = {};
-        }
-        currentConfig.plugins.entries[LUMII_PLUGIN_ID].enabled = true;
-    }
 }
 
 function transformChannelConfig(
@@ -605,31 +568,6 @@ function transformChannelConfig(
         }
 
         transformedConfig.allowFrom = allowFrom;
-    }
-
-    if (channelType === 'openclaw-lumii') {
-        const tc = transformedConfig as Record<string, unknown>;
-        const pairs: [string, string][] = [
-            ['lumiFileEnabled', 'lumiiFileEnabled'],
-            ['lumiFileOssRegion', 'lumiiFileOssRegion'],
-            ['lumiFileOssBucket', 'lumiiFileOssBucket'],
-            ['lumiFileOssAccessKeyId', 'lumiiFileOssAccessKeyId'],
-            ['lumiFileOssAccessKeySecret', 'lumiiFileOssAccessKeySecret'],
-            ['lumiFileOssPrefix', 'lumiiFileOssPrefix'],
-            ['lumiFileOssPublicBaseUrl', 'lumiiFileOssPublicBaseUrl'],
-            ['lumiFileOssEndpoint', 'lumiiFileOssEndpoint'],
-        ];
-        for (const [legacy, next] of pairs) {
-            if (tc[next] === undefined && tc[legacy] !== undefined) {
-                tc[next] = tc[legacy];
-            }
-        }
-        for (const [legacy] of pairs) {
-            if (legacy in tc) {
-                delete tc[legacy];
-            }
-        }
-        transformedConfig = tc as ChannelConfigData;
     }
 
     return transformedConfig;
@@ -778,10 +716,6 @@ export async function saveChannelConfig(
 
         const channelSection = currentConfig.channels[resolvedChannelType];
         migrateLegacyChannelConfigToAccounts(channelSection, DEFAULT_ACCOUNT_ID);
-
-        if (resolvedChannelType === 'openclaw-lumii') {
-            await ensureLumiiMetaioUidUniqueOnPasswordSave(config, resolvedAccountId);
-        }
 
         // Guard: reject if this bot/app credential is already used by another account.
         assertNoDuplicateCredential(resolvedChannelType, config, channelSection, resolvedAccountId);
@@ -974,9 +908,6 @@ export async function deleteChannelAccountConfig(channelType: string, accountId:
         if (isWechatChannelType(resolvedChannelType)) {
             await deleteWeChatAccountState(accountId);
         }
-        if (resolvedChannelType === 'openclaw-lumii') {
-            await removeLumiiAccountState(accountId);
-        }
         logger.info('Deleted channel account config', { channelType: resolvedChannelType, accountId });
         console.log(`Deleted channel account config for ${resolvedChannelType}/${accountId}`);
     });
@@ -997,9 +928,6 @@ export async function deleteChannelConfig(channelType: string): Promise<void> {
             await writeOpenClawConfig(currentConfig);
             if (isWechatChannelType(resolvedChannelType)) {
                 await deleteWeChatState();
-            }
-            if (resolvedChannelType === 'openclaw-lumii') {
-                await clearOpenclawLumiiPluginAccountFiles();
             }
             console.log(`Deleted channel config for ${resolvedChannelType}`);
         } else if (PLUGIN_CHANNELS.includes(resolvedChannelType)) {
@@ -1352,125 +1280,15 @@ export interface CredentialValidationResult {
     details?: Record<string, string>;
 }
 
-const LUMII_PASSWORD_PROBE_CACHE_TTL_MS = 120_000;
-type LumiiPasswordProbeCacheEntry = {
-    metaioUid: string;
-    metaioToken: string;
-    metaioBaseUrl: string;
-    expiresAt: number;
-};
-const lumiiPasswordProbeCache = new Map<string, LumiiPasswordProbeCacheEntry>();
-
-function lumiiPasswordProbeCacheKey(accountId: string, username: string, password: string): string {
-    return `${accountId.trim()}\u0001${username}\u0001${password}`;
-}
-
-function rememberLumiiPasswordProbe(
-    accountId: string,
-    username: string,
-    password: string,
-    payload: { metaioUid: string; metaioToken: string; metaioBaseUrl: string },
-): void {
-    lumiiPasswordProbeCache.set(lumiiPasswordProbeCacheKey(accountId, username, password), {
-        ...payload,
-        expiresAt: Date.now() + LUMII_PASSWORD_PROBE_CACHE_TTL_MS,
-    });
-}
-
-/** Lets save skip a duplicate Metaio login HTTP call right after validate. */
-function tryConsumeLumiiPasswordProbe(
-    accountId: string,
-    username: string,
-    password: string,
-): { metaioUid: string; metaioToken: string; metaioBaseUrl: string } | null {
-    const key = lumiiPasswordProbeCacheKey(accountId, username, password);
-    const entry = lumiiPasswordProbeCache.get(key);
-    if (!entry) return null;
-    lumiiPasswordProbeCache.delete(key);
-    if (Date.now() > entry.expiresAt) return null;
-    return { metaioUid: entry.metaioUid, metaioToken: entry.metaioToken, metaioBaseUrl: entry.metaioBaseUrl };
-}
-
-async function validateOpenclawLumiiCredentials(
-    config: Record<string, string>,
-    accountId?: string,
-): Promise<CredentialValidationResult> {
-    const mode = (config.metaioLoginMode ?? '').trim().toLowerCase();
-    if (mode === 'qr') {
-        return { valid: true, errors: [], warnings: [] };
-    }
-    try {
-        const probe = await probeMetaioPasswordLogin(config.metaioUsername ?? '', config.metaioPassword ?? '');
-        if (!probe.ok) {
-            return { valid: false, errors: [probe.message], warnings: [] };
-        }
-        try {
-            assertMetaioUidUniqueForAccount(probe.metaioUid, accountId?.trim() || DEFAULT_ACCOUNT_ID);
-        } catch (e) {
-            return { valid: false, errors: [e instanceof Error ? e.message : String(e)], warnings: [] };
-        }
-        rememberLumiiPasswordProbe(
-            accountId?.trim() || DEFAULT_ACCOUNT_ID,
-            config.metaioUsername ?? '',
-            config.metaioPassword ?? '',
-            {
-                metaioUid: probe.metaioUid,
-                metaioToken: probe.metaioToken,
-                metaioBaseUrl: probe.metaioBaseUrl,
-            },
-        );
-        return {
-            valid: true,
-            errors: [],
-            warnings: [],
-            details: {
-                metaioUid: probe.metaioUid,
-                ...(probe.metaioDisplayName ? { metaioDisplayName: probe.metaioDisplayName } : {}),
-            },
-        };
-    } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return { valid: false, errors: [`Metaio login check failed: ${msg}`], warnings: [] };
-    }
-}
-
-async function ensureLumiiMetaioUidUniqueOnPasswordSave(
-    config: ChannelConfigData,
-    resolvedAccountId: string,
-): Promise<void> {
-    const raw = config as Record<string, unknown>;
-    const mode = String(raw.metaioLoginMode ?? '').trim().toLowerCase();
-    if (mode === 'qr') return;
-    const user = typeof raw.metaioUsername === 'string' ? raw.metaioUsername : '';
-    const pass = typeof raw.metaioPassword === 'string' ? raw.metaioPassword : '';
-    const cached = tryConsumeLumiiPasswordProbe(resolvedAccountId, user, pass);
-    if (cached) {
-        assertMetaioUidUniqueForAccount(cached.metaioUid, resolvedAccountId);
-        await saveLumiiAccountFile(resolvedAccountId, cached.metaioToken, cached.metaioBaseUrl, {
-            userId: cached.metaioUid,
-        });
-        return;
-    }
-    const pr = await probeMetaioPasswordLogin(user, pass);
-    if (!pr.ok) {
-        throw new Error(pr.message);
-    }
-    assertMetaioUidUniqueForAccount(pr.metaioUid, resolvedAccountId);
-    await saveLumiiAccountFile(resolvedAccountId, pr.metaioToken, pr.metaioBaseUrl, { userId: pr.metaioUid });
-}
-
 export async function validateChannelCredentials(
     channelType: string,
-    config: Record<string, string>,
-    accountId?: string,
+    config: Record<string, string>
 ): Promise<CredentialValidationResult> {
     switch (resolveStoredChannelType(channelType)) {
         case 'discord':
             return validateDiscordCredentials(config);
         case 'telegram':
             return validateTelegramCredentials(config);
-        case 'openclaw-lumii':
-            return validateOpenclawLumiiCredentials(config, accountId);
         default:
             return { valid: true, errors: [], warnings: ['No online validation available for this channel type.'] };
     }

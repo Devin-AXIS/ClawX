@@ -60,11 +60,6 @@ export async function handleProviderRoutes(
     return true;
   }
 
-  if (url.pathname === '/api/provider-accounts/with-key-info' && req.method === 'GET') {
-    sendJson(res, 200, await providerService.listAccountsWithKeyInfo());
-    return true;
-  }
-
   if (url.pathname === '/api/provider-accounts' && req.method === 'POST') {
     try {
       const body = await parseJsonBody<{ account: ProviderAccount; apiKey?: string }>(req);
@@ -163,7 +158,7 @@ export async function handleProviderRoutes(
 
   if (url.pathname === '/api/providers' && req.method === 'GET') {
     logLegacyProviderRoute('GET /api/providers');
-    sendJson(res, 200, await providerService.listAccountsWithKeyInfo());
+    sendJson(res, 200, await providerService.listLegacyProvidersWithKeyInfo());
     return true;
   }
 

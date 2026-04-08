@@ -21,12 +21,8 @@ export function isWechatChannelType(channelType: string | null | undefined): boo
   return channelType === UI_WECHAT_CHANNEL_TYPE || channelType === OPENCLAW_WECHAT_CHANNEL_TYPE;
 }
 
-/**
- * Account id is assigned by the integration (WeChat device binding, Lumii Metaio uid from login/QR),
- * not typed in the add-account form.
- */
 export function usesPluginManagedQrAccounts(channelType: string | null | undefined): boolean {
-  return isWechatChannelType(channelType) || channelType === 'openclaw-lumii';
+  return isWechatChannelType(channelType);
 }
 
 export function buildQrChannelEventName(channelType: string, event: QrChannelEvent): string {

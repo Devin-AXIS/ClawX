@@ -24,14 +24,6 @@
                 "x64",
                 "arm64"
             ]
-        },
-        "ignoredBuiltDependencies": [
-            "electron",
-            "esbuild",
-            "openclaw"
-        ],
-        "patchedDependencies": {
-            "openclaw@2026.4.5": "patches/openclaw@2026.4.5.patch"
         }
     },
     "description": "ClawX - Graphical AI Assistant based on OpenClaw",
@@ -77,18 +69,15 @@
     "dependencies": {
         "@aws-sdk/client-bedrock": "^3.1024.0",
         "@buape/carbon": "^0.14.0",
-        "@sinclair/typebox": "^0.34.48",
         "@slack/web-api": "^7.15.0",
+        "@sinclair/typebox": "^0.34.48",
         "clawhub": "^0.5.0",
         "electron-store": "^11.0.2",
         "electron-updater": "^6.8.3",
-        "grammy": "^1.42.0",
         "lru-cache": "^11.2.6",
         "ms": "^2.1.3",
         "node-machine-id": "^1.1.12",
-        "openclaw": "2026.4.5",
         "posthog-node": "^5.28.0",
-        "qrcode": "^1.5.4",
         "ws": "^8.19.0"
     },
     "devDependencies": {
@@ -112,7 +101,6 @@
         "@testing-library/jest-dom": "^6.9.1",
         "@testing-library/react": "^16.3.2",
         "@types/node": "^25.3.0",
-        "@types/qrcode": "^1.5.6",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
         "@types/ws": "^8.18.1",
@@ -134,6 +122,7 @@
         "i18next": "^25.8.11",
         "jsdom": "^28.1.0",
         "lucide-react": "^0.563.0",
+        "openclaw": "2026.4.1",
         "png2icons": "^2.0.1",
         "postcss": "^8.5.6",
         "react": "^19.2.4",

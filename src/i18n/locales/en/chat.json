@@ -37,25 +37,5 @@
         "withinTwoWeeks": "Within 2 Weeks",
         "withinMonth": "Within 1 Month",
         "older": "Older than 1 Month"
-    },
-    "lumii": {
-        "login": "Lumii login",
-        "logout": "Log out",
-        "dialogTitle": "Log in to Lumii (Metaio)",
-        "dialogDescription": "Your account will be saved and the Lumii channel will be configured automatically.",
-        "username": "Account",
-        "usernamePlaceholder": "Metaio username",
-        "password": "Password",
-        "passwordPlaceholder": "Password",
-        "cancel": "Cancel",
-        "submit": "Log in & configure",
-        "connecting": "Connecting…",
-        "missingCredentials": "Enter username and password.",
-        "loginFailed": "Login failed.",
-        "loginFailedWithError": "Login failed: {{error}}",
-        "noUid": "Server did not return account id. Try again.",
-        "loginSuccess": "Lumii configured.",
-        "logoutSuccess": "Signed out of Lumii.",
-        "logoutFailed": "Sign out failed: {{error}}"
     }
 }
