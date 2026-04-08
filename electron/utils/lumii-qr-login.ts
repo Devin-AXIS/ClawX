@@ -393,11 +393,15 @@ export async function saveLumiiAccountFile(
     }
 }
 
-export function cancelOpenclawLumiiQrLogin(accountId?: string): void {
-    const key = `${LUMII_CHANNEL_ID}:${accountId?.trim() || '__new__'}`;
-    const ac = activeLumiiQrAborts.get(key);
-    if (ac) {
-        logger.info(`${LOG_PREFIX} cancel poll`, { accountId: accountId?.trim() || '__new__' });
+/**
+ * Stops Metaio `auth/qrcode/status` polling for any in-flight Lumii QR session.
+ * Aborts every active controller so a single cancel call always matches the running poll
+ * even if start/cancel account keys drifted in the UI.
+ */
+export function cancelOpenclawLumiiQrLogin(_accountId?: string): void {
+    if (activeLumiiQrAborts.size === 0) return;
+    for (const [key, ac] of [...activeLumiiQrAborts.entries()]) {
+        logger.info(`${LOG_PREFIX} cancel poll`, { key });
         ac.abort();
         activeLumiiQrAborts.delete(key);
     }

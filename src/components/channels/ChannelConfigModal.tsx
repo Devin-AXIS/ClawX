@@ -101,7 +101,9 @@ export function ChannelConfigModal({
 
   const meta: ChannelMeta | null = selectedType ? CHANNEL_META[selectedType] : null;
   const lumiiQrMode = selectedType === 'openclaw-lumii' && configValues.metaioLoginMode === 'qr';
-  const isQrLikeFlow = meta?.connectionType === 'qr' || lumiiQrMode;
+  /** Lumii uses meta `connectionType: 'qr'` for routing, but password vs QR is chosen via metaioLoginMode. */
+  const isQrLikeFlow =
+    selectedType === 'openclaw-lumii' ? lumiiQrMode : meta?.connectionType === 'qr';
   const shouldUseCredentialValidation = selectedType !== 'feishu';
   const usesManagedQrAccounts = usesPluginManagedQrAccounts(selectedType);
   const showAccountIdEditor = allowEditAccountId && !usesManagedQrAccounts;
@@ -240,6 +242,20 @@ export function ChannelConfigModal({
     configValuesRef.current = configValues;
   }, [configValues]);
 
+  const cancelActiveQrChannelSession = useCallback(() => {
+    if (!selectedType || !isQrLikeFlow) return;
+    void hostApiFetch(`/api/channels/${encodeURIComponent(selectedType)}/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
+    }).catch(() => {});
+  }, [isQrLikeFlow, resolvedAccountId, selectedType]);
+
+  const handleClose = useCallback(() => {
+    cancelActiveQrChannelSession();
+    onClose();
+  }, [cancelActiveQrChannelSession, onClose]);
+
   function normalizeQrImageSource(data: { qr?: string; raw?: string }): string | null {
     const qr = typeof data.qr === 'string' ? data.qr.trim() : '';
     if (qr) {
@@ -355,12 +371,9 @@ export function ChannelConfigModal({
       removeQrListener();
       removeSuccessListener();
       removeErrorListener();
-      hostApiFetch(`/api/channels/${encodeURIComponent(channelType)}/cancel`, {
-        method: 'POST',
-        body: JSON.stringify(resolvedAccountId ? { accountId: resolvedAccountId } : {}),
-      }).catch(() => { });
+      cancelActiveQrChannelSession();
     };
-  }, [isQrLikeFlow, meta?.connectionType, resolvedAccountId, selectedType]);
+  }, [cancelActiveQrChannelSession, isQrLikeFlow, resolvedAccountId, selectedType]);
 
   const handleValidate = async () => {
     if (!selectedType || !shouldUseCredentialValidation) return;
@@ -598,7 +611,7 @@ export function ChannelConfigModal({
       className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
-          onClose();
+          handleClose();
         }
       }}
     >
@@ -625,7 +638,7 @@ export function ChannelConfigModal({
           <Button
             variant="ghost"
             size="icon"
-            onClick={onClose}
+            onClick={handleClose}
             className="rounded-full h-8 w-8 -mr-2 -mt-2 text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/5"
           >
             <X className="h-4 w-4" />
