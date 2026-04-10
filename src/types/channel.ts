@@ -649,10 +649,21 @@ export const CHANNEL_META: Record<ChannelType, ChannelMeta> = {
 };
 
 /**
- * Get primary supported channels (non-plugin, commonly used)
+ * Channels shown on the Channels page "supported" grid and channel picker.
+ * Plugin channels (WeChat, Lumii, etc.) are included when we ship them in-app.
  */
 export function getPrimaryChannels(): ChannelType[] {
-  return ['telegram', 'discord', 'whatsapp', 'wechat', 'dingtalk', 'feishu', 'wecom', 'qqbot'];
+  return [
+    'telegram',
+    'discord',
+    'whatsapp',
+    'wechat',
+    'dingtalk',
+    'feishu',
+    'wecom',
+    'openclaw-lumii',
+    'qqbot',
+  ];
 }
 
 /**

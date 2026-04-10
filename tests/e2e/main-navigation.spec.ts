@@ -18,6 +18,7 @@ test.describe('ClawX main navigation without setup flow', () => {
 
       await page.getByTestId('sidebar-nav-channels').click();
       await expect(page.getByTestId('channels-page')).toBeVisible();
+      await expect(page.getByRole('heading', { name: 'Lumii' })).toBeVisible();
     } finally {
       await closeElectronApp(app);
     }

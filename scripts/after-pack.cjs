@@ -577,6 +577,7 @@ exports.default = async function afterPack(context) {
     { npmName: '@wecom/wecom-openclaw-plugin', pluginId: 'wecom' },
     { npmName: '@larksuite/openclaw-lark', pluginId: 'feishu-openclaw-plugin' },
     { npmName: '@tencent-weixin/openclaw-weixin', pluginId: 'openclaw-weixin' },
+    { npmName: '@wemotechnology/openclaw-lumii', pluginId: 'openclaw-lumii' },
   ];
 
   mkdirSync(pluginsDestRoot, { recursive: true });

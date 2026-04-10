@@ -8,6 +8,7 @@
  *   - @soimy/dingtalk -> build/openclaw-plugins/dingtalk
  *   - @wecom/wecom-openclaw-plugin -> build/openclaw-plugins/wecom
  *   - @tencent-weixin/openclaw-weixin -> build/openclaw-plugins/openclaw-weixin
+ *   - @wemotechnology/openclaw-lumii -> build/openclaw-plugins/openclaw-lumii
  *
  * The output plugin directory contains:
  *   - plugin source files (index.ts, openclaw.plugin.json, package.json, ...)
@@ -40,6 +41,7 @@ const PLUGINS = [
   { npmName: '@wecom/wecom-openclaw-plugin', pluginId: 'wecom' },
   { npmName: '@larksuite/openclaw-lark', pluginId: 'feishu-openclaw-plugin' },
   { npmName: '@tencent-weixin/openclaw-weixin', pluginId: 'openclaw-weixin' },
+  { npmName: '@wemotechnology/openclaw-lumii', pluginId: 'openclaw-lumii' },
 ];
 
 function getVirtualStoreNodeModules(realPkgPath) {

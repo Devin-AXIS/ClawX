@@ -2,7 +2,7 @@
  * Shared OpenClaw Plugin Install Utilities
  *
  * Provides version-aware install/upgrade logic for bundled OpenClaw plugins
- * (DingTalk, WeCom, Feishu, WeChat).  Used both at app startup (to auto-upgrade
+ * (DingTalk, WeCom, Feishu, WeChat, Lumii).  Used both at app startup (to auto-upgrade
  * stale plugins) and when a user configures a channel.
  *
  * Note: QQBot was moved to a built-in channel in OpenClaw 3.31 and is no longer
@@ -236,6 +236,7 @@ const PLUGIN_NPM_NAMES: Record<string, string> = {
   'feishu-openclaw-plugin': '@larksuite/openclaw-lark',
 
   'openclaw-weixin': '@tencent-weixin/openclaw-weixin',
+  'openclaw-lumii': '@wemotechnology/openclaw-lumii',
 };
 
 // ── Version helper ───────────────────────────────────────────────────────────
@@ -517,6 +518,10 @@ export function ensureWeChatPluginInstalled(): { installed: boolean; warning?: s
   return ensurePluginInstalled('openclaw-weixin', buildCandidateSources('openclaw-weixin'), 'WeChat');
 }
 
+export function ensureOpenclawLumiiPluginInstalled(): { installed: boolean; warning?: string } {
+  return ensurePluginInstalled('openclaw-lumii', buildCandidateSources('openclaw-lumii'), 'Lumii');
+}
+
 // ── Bulk startup installer ───────────────────────────────────────────────────
 
 /**
@@ -528,6 +533,7 @@ const ALL_BUNDLED_PLUGINS = [
 
   { fn: ensureFeishuPluginInstalled, label: 'Feishu' },
   { fn: ensureWeChatPluginInstalled, label: 'WeChat' },
+  { fn: ensureOpenclawLumiiPluginInstalled, label: 'Lumii' },
 ] as const;
 
 /**
