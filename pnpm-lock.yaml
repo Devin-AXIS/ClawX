@@ -30,8 +30,8 @@ importers:
         specifier: ^7.15.0
         version: 7.15.0
       '@wemotechnology/openclaw-lumii':
-        specifier: ^0.1.2
-        version: 0.1.2(openclaw@2026.4.5(patch_hash=fddc3e013ee260765e8d8ab21a837be4925394e20983466f9b1a4623929de4e0)(@napi-rs/canvas@0.1.97)(encoding@0.1.13))
+        specifier: ^0.1.4
+        version: 0.1.4(openclaw@2026.4.5(patch_hash=fddc3e013ee260765e8d8ab21a837be4925394e20983466f9b1a4623929de4e0)(@napi-rs/canvas@0.1.97)(encoding@0.1.13))
       clawhub:
         specifier: ^0.5.0
         version: 0.5.0
@@ -2582,8 +2582,8 @@ packages:
   '@wecom/wecom-openclaw-plugin@2026.3.30':
     resolution: {integrity: sha512-nEFEliWjQhoBwiSuMniC4P6U8kSLTlGu3EV+jojIVMeL/z1m2PSu17w0u33YwYDvpJH/59GwipEQGmle+VO4aQ==}
 
-  '@wemotechnology/openclaw-lumii@0.1.2':
-    resolution: {integrity: sha512-rxR+dpGqKBpr+OxiDQcP+7RKhkOFQWZgLtyMPO4Lg1m1J9iMx02YVLrXfITXDFwYdOH0I7hSM9j8AakBK2RfgA==}
+  '@wemotechnology/openclaw-lumii@0.1.4':
+    resolution: {integrity: sha512-+ZN0OoE6c2FSrd9m8jxaZ7rZoiDT4kvjmVk7z5czdAUEogrKrD4wUY1+YsGM0ykuMWb9zRzPVTmtXCJCzvw1xQ==}
     engines: {node: '>=22'}
     peerDependencies:
       openclaw: '>=2026.3.22'
@@ -9219,7 +9219,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@wemotechnology/openclaw-lumii@0.1.2(openclaw@2026.4.5(patch_hash=fddc3e013ee260765e8d8ab21a837be4925394e20983466f9b1a4623929de4e0)(@napi-rs/canvas@0.1.97)(encoding@0.1.13))':
+  '@wemotechnology/openclaw-lumii@0.1.4(openclaw@2026.4.5(patch_hash=fddc3e013ee260765e8d8ab21a837be4925394e20983466f9b1a4623929de4e0)(@napi-rs/canvas@0.1.97)(encoding@0.1.13))':
     dependencies:
       ali-oss: 6.23.0
       qrcode: 1.5.4

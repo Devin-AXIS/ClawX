@@ -90,7 +90,8 @@ async function fetchSparseRepo(repo, ref, paths, checkoutDir) {
 
   await $`git init ${gitCheckoutDir}`;
   await $`git -C ${gitCheckoutDir} remote add origin ${remote}`;
-  await $`git -C ${gitCheckoutDir} fetch --depth 1 origin ${ref}`;
+  // GitHub over HTTP/2 sometimes fails with "Error in the HTTP2 framing layer"; force HTTP/1.1 for fetch.
+  await $`git -c http.version=HTTP/1.1 -C ${gitCheckoutDir} fetch --depth 1 origin ${ref}`;
   // Do not checkout working tree on Windows: upstream repos may contain
   // Windows-invalid paths. Export only requested directories via git archive.
   await $`git -C ${gitCheckoutDir} archive --format=tar --output ${archiveFileName} FETCH_HEAD ${archivePaths}`;
