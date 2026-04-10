@@ -855,8 +855,25 @@ export async function getChannelConfig(channelType: string, accountId?: string):
     const channelSection = config.channels?.[resolvedChannelType];
     if (!channelSection) return undefined;
 
-    const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
     const accounts = channelSection.accounts as Record<string, ChannelConfigData> | undefined;
+    const accountKeys = accounts ? Object.keys(accounts) : [];
+
+    let resolvedAccountId: string;
+    if (accountId?.trim()) {
+        resolvedAccountId = accountId.trim();
+    } else {
+        const def =
+            typeof channelSection.defaultAccount === 'string' ? channelSection.defaultAccount.trim() : '';
+        if (def && accounts?.[def]) {
+            /** e.g. Lumii QR saves under Lumii uid while UI GET omits ?accountId= */
+            resolvedAccountId = def;
+        } else if (accountKeys.length === 1) {
+            resolvedAccountId = accountKeys[0];
+        } else {
+            resolvedAccountId = DEFAULT_ACCOUNT_ID;
+        }
+    }
+
     if (accounts?.[resolvedAccountId]) {
         return accounts[resolvedAccountId];
     }
@@ -1357,6 +1374,7 @@ type LumiiPasswordProbeCacheEntry = {
     metaioUid: string;
     metaioToken: string;
     metaioBaseUrl: string;
+    applicationId?: string;
     expiresAt: number;
 };
 const lumiiPasswordProbeCache = new Map<string, LumiiPasswordProbeCacheEntry>();
@@ -1369,7 +1387,7 @@ function rememberLumiiPasswordProbe(
     accountId: string,
     username: string,
     password: string,
-    payload: { metaioUid: string; metaioToken: string; metaioBaseUrl: string },
+    payload: { metaioUid: string; metaioToken: string; metaioBaseUrl: string; applicationId?: string },
 ): void {
     lumiiPasswordProbeCache.set(lumiiPasswordProbeCacheKey(accountId, username, password), {
         ...payload,
@@ -1377,18 +1395,23 @@ function rememberLumiiPasswordProbe(
     });
 }
 
-/** Lets save skip a duplicate Metaio login HTTP call right after validate. */
+/** Lets save skip a duplicate Lumii login HTTP call right after validate. */
 function tryConsumeLumiiPasswordProbe(
     accountId: string,
     username: string,
     password: string,
-): { metaioUid: string; metaioToken: string; metaioBaseUrl: string } | null {
+): { metaioUid: string; metaioToken: string; metaioBaseUrl: string; applicationId?: string } | null {
     const key = lumiiPasswordProbeCacheKey(accountId, username, password);
     const entry = lumiiPasswordProbeCache.get(key);
     if (!entry) return null;
     lumiiPasswordProbeCache.delete(key);
     if (Date.now() > entry.expiresAt) return null;
-    return { metaioUid: entry.metaioUid, metaioToken: entry.metaioToken, metaioBaseUrl: entry.metaioBaseUrl };
+    return {
+        metaioUid: entry.metaioUid,
+        metaioToken: entry.metaioToken,
+        metaioBaseUrl: entry.metaioBaseUrl,
+        ...(entry.applicationId ? { applicationId: entry.applicationId } : {}),
+    };
 }
 
 async function validateOpenclawLumiiCredentials(
@@ -1417,6 +1440,7 @@ async function validateOpenclawLumiiCredentials(
                 metaioUid: probe.metaioUid,
                 metaioToken: probe.metaioToken,
                 metaioBaseUrl: probe.metaioBaseUrl,
+                ...(probe.applicationId ? { applicationId: probe.applicationId } : {}),
             },
         );
         return {
@@ -1425,12 +1449,13 @@ async function validateOpenclawLumiiCredentials(
             warnings: [],
             details: {
                 metaioUid: probe.metaioUid,
+                ...(probe.applicationId ? { applicationId: probe.applicationId } : {}),
                 ...(probe.metaioDisplayName ? { metaioDisplayName: probe.metaioDisplayName } : {}),
             },
         };
     } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        return { valid: false, errors: [`Metaio login check failed: ${msg}`], warnings: [] };
+        return { valid: false, errors: [`Lumii login check failed: ${msg}`], warnings: [] };
     }
 }
 
@@ -1443,11 +1468,14 @@ async function ensureLumiiMetaioUidUniqueOnPasswordSave(
     if (mode === 'qr') return;
     const user = typeof raw.metaioUsername === 'string' ? raw.metaioUsername : '';
     const pass = typeof raw.metaioPassword === 'string' ? raw.metaioPassword : '';
-    const cached = tryConsumeLumiiPasswordProbe(resolvedAccountId, user, pass);
+    const cached =
+        tryConsumeLumiiPasswordProbe(resolvedAccountId, user, pass) ||
+        tryConsumeLumiiPasswordProbe(DEFAULT_ACCOUNT_ID, user, pass);
     if (cached) {
         assertMetaioUidUniqueForAccount(cached.metaioUid, resolvedAccountId);
         await saveLumiiAccountFile(resolvedAccountId, cached.metaioToken, cached.metaioBaseUrl, {
             userId: cached.metaioUid,
+            ...(cached.applicationId ? { applicationId: cached.applicationId } : {}),
         });
         return;
     }
@@ -1456,7 +1484,10 @@ async function ensureLumiiMetaioUidUniqueOnPasswordSave(
         throw new Error(pr.message);
     }
     assertMetaioUidUniqueForAccount(pr.metaioUid, resolvedAccountId);
-    await saveLumiiAccountFile(resolvedAccountId, pr.metaioToken, pr.metaioBaseUrl, { userId: pr.metaioUid });
+    await saveLumiiAccountFile(resolvedAccountId, pr.metaioToken, pr.metaioBaseUrl, {
+        userId: pr.metaioUid,
+        ...(pr.applicationId ? { applicationId: pr.applicationId } : {}),
+    });
 }
 
 export async function validateChannelCredentials(

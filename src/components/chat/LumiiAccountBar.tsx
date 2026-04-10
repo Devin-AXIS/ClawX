@@ -1,5 +1,5 @@
 /**
- * Lumii (Metaio) login / logout on the Chat page — saves openclaw-lumii channel config after successful login.
+ * Lumii login / logout on the Chat page — saves openclaw-lumii channel config after successful login.
  */
 import { useState, useEffect, useCallback, type FormEvent } from 'react';
 import { LogIn, LogOut, Loader2 } from 'lucide-react';
@@ -65,14 +65,15 @@ export function LumiiAccountBar() {
 
       const values = cfgRes.success ? cfgRes.values : undefined;
       setLocalFormValues(values ?? null);
-      setHasLocalLumiiConfig(hasMeaningfulLumiiLocalForm(values));
 
-      if (!res.success || !res.channels) {
-        setLumiiGroup(null);
-        return;
-      }
-      const g = res.channels.find((c) => c.channelType === LUMII_CHANNEL);
-      setLumiiGroup(g ?? null);
+      const lumiiGroupNext =
+        res.success && res.channels
+          ? (res.channels.find((c) => c.channelType === LUMII_CHANNEL) ?? null)
+          : null;
+      setLumiiGroup(lumiiGroupNext);
+
+      /** Rely on Host API form values only — gateway `configured` can lag after DELETE and keep showing a name. */
+      setHasLocalLumiiConfig(hasMeaningfulLumiiLocalForm(values));
     } catch {
       setLumiiGroup(null);
       setLocalFormValues(null);
@@ -193,9 +194,13 @@ export function LumiiAccountBar() {
 
   async function handleLogout() {
     setLoggingOut(true);
+    const accountsToRemove = lumiiGroup?.accounts;
+    setLocalFormValues(null);
+    setLumiiGroup(null);
+    setHasLocalLumiiConfig(false);
     try {
-      if (lumiiGroup?.accounts?.length) {
-        for (const acc of lumiiGroup.accounts) {
+      if (accountsToRemove?.length) {
+        for (const acc of accountsToRemove) {
           const suffix = `?accountId=${encodeURIComponent(acc.accountId)}`;
           try {
             await hostApiFetch(`/api/channels/config/${encodeURIComponent(LUMII_CHANNEL)}${suffix}`, {

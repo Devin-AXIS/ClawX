@@ -318,7 +318,7 @@ export function ChannelConfigModal({
         }
         if (channelType === 'openclaw-lumii') {
           const v = normalizeOpenclawLumiiFormValues(configValuesRef.current);
-          /** Metaio uid from QR poll success — not configured in the form. */
+          /** Lumii uid from QR poll success — not configured in the form. */
           const backendAccountId = data?.accountId?.trim();
           const display = data?.metaioDisplayName?.trim();
           const saveResult = await hostApiFetch<{ success?: boolean; error?: string }>('/api/channels/config', {
@@ -522,7 +522,7 @@ export function ChannelConfigModal({
           : resolvedAccountId;
 
       if (selectedType === 'openclaw-lumii' && !saveAccountId) {
-        toast.error(t('toast.configFailed', { error: 'Metaio account id (uid) was not returned. Try again.' }));
+        toast.error(t('toast.configFailed', { error: 'Lumii account id (uid) was not returned. Try again.' }));
         setConnecting(false);
         return;
       }

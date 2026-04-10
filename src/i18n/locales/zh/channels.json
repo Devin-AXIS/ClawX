@@ -369,24 +369,24 @@
             ]
         },
         "openclaw-lumii": {
-            "description": "openclaw-lumii（插件展示名 Lumii (Metaio)）：当前仅通过 Metaio 做登录（账号密码或扫码），无独立 Lumii 业务 HTTP 接口；令牌来自 Metaio。可选 lumii-file 等见 openclaw.plugin.json / LUMII_FILE_*。",
+            "description": "Lumii 频道（openclaw-lumii）：使用 Lumii 登录（密码或扫码）。可选 lumii-file 等见 openclaw.plugin.json / LUMII_FILE_*。",
             "docsUrl": "https://docs.openclaw.ai/channels/openclaw-lumii",
             "fields": {
                 "channelUiNote": {
                     "label": "备注",
                     "placeholder": "可选备注",
-                    "description": "与插件 channelUiNote 一致（可选）。ClawX 内登录均为 Metaio（密码或扫码）。"
+                    "description": "与插件 channelUiNote 一致（可选）。ClawX 内为 Lumii 登录（密码或扫码）。"
                 },
                 "metaioLoginMode": {
                     "label": "登录方式",
-                    "description": "与 METAIO_LOGIN_MODE 一致：password/pwd 为 Metaio 密码；qr/qrcode/scan 为 Metaio 扫码。也可用 dev-config 中 METAIO_PASSWORD_LOGIN=1 强制密码。保存在 channels.openclaw-lumii。",
+                    "description": "与 METAIO_LOGIN_MODE 一致：password/pwd 为密码登录；qr/qrcode/scan 为扫码。也可用 dev-config 中 METAIO_PASSWORD_LOGIN=1 强制密码。保存在 channels.openclaw-lumii。",
                     "optionPassword": "账号密码登录",
                     "optionQr": "扫码登录"
                 },
                 "metaioUsername": {
-                    "label": "账号",
-                    "placeholder": "用户名或手机号",
-                    "description": "对应 METAIO_USERNAME；也可写在 ~/.openclaw/openclaw-lumii/dev-config.json。"
+                    "label": "手机号",
+                    "placeholder": "11 位手机号",
+                    "description": "Lumii 登录用手机号；对应 METAIO_USERNAME。也可写在 ~/.openclaw/openclaw-lumii/dev-config.json。"
                 },
                 "metaioPassword": {
                     "label": "密码",
@@ -396,8 +396,8 @@
             },
             "instructions": [
                 "安装并启用 openclaw-lumii 插件（openclaw.plugin.json 含 channelUiNote、可选 lumii-file 等）。",
-                "在环境变量或 ~/.openclaw/openclaw-lumii/dev-config.json 配置 Metaio（METAIO_BASE_URL 或 METAIO_AUTH=1；可选 METAIO_LOGIN_PATH、METAIO_QR_START_PATH、METAIO_QR_STATUS_PATH；密码登录请求体字段名 METAIO_LOGIN_USERNAME_FIELD、METAIO_LOGIN_PASSWORD_FIELD，默认 username/password）。",
-                "选择账号密码或扫码并保存；扫码只请求 Metaio（与插件频道「登录」一致）。"
+                "在环境变量或 ~/.openclaw/openclaw-lumii/dev-config.json 配置 Lumii 登录端点（METAIO_BASE_URL 或 METAIO_AUTH=1；可选 METAIO_LOGIN_PATH、METAIO_QR_START_PATH、METAIO_QR_STATUS_PATH；密码登录请求体字段名 METAIO_LOGIN_USERNAME_FIELD、METAIO_LOGIN_PASSWORD_FIELD，默认 username/password）。",
+                "选择密码或扫码并保存；与插件频道登录流程一致。"
             ]
         },
         "qqbot": {

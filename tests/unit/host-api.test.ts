@@ -38,13 +38,13 @@ describe('host-api', () => {
       data: {
         status: 500,
         ok: false,
-        json: { success: false, error: 'Metaio QR start 502: bad gateway' },
+        json: { success: false, error: 'Lumii QR start 502: bad gateway' },
       },
     });
 
     const { hostApiFetch } = await import('@/lib/host-api');
     await expect(hostApiFetch('/api/channels/openclaw-lumii/start', { method: 'POST', body: '{}' })).rejects.toThrow(
-      'Metaio QR start 502: bad gateway',
+      'Lumii QR start 502: bad gateway',
     );
   });
 

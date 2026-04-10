@@ -408,7 +408,7 @@ async function buildChannelAccountsView(ctx: HostApiContext): Promise<ChannelAcc
         typeof perAccountCfg.metaioAccountDisplayName === 'string'
           ? perAccountCfg.metaioAccountDisplayName.trim()
           : '';
-      /** Prefer login-saved display name; gateway `name` is often uid-like and hides Metaio username. */
+      /** Prefer login-saved display name; gateway `name` is often uid-like and hides Lumii display name. */
       const displayName =
         rawChannelType === 'openclaw-lumii'
           ? (lumiiSavedName
@@ -1163,7 +1163,7 @@ export async function handleChannelRoutes(
       logger.info('[openclaw-lumii][qr] host API POST /api/channels/openclaw-lumii/start', {
         accountId: requestedAccountId ?? '(default)',
       });
-      /** Do not call saveChannelConfig here — that would add the account to openclaw.json before Metaio login succeeds. Persist on QR success via renderer POST /api/channels/config. */
+      /** Do not call saveChannelConfig here — that would add the account to openclaw.json before Lumii login succeeds. Persist on QR success via renderer POST /api/channels/config. */
       await startOpenclawLumiiQrLogin(
         {
           eventBus: ctx.eventBus,

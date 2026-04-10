@@ -71,6 +71,20 @@ export function extractMetaioUidFromLoginResponse(json: unknown): string | null 
     return normalizeMetaioUid((info as Record<string, unknown>).uid);
 }
 
+/**
+ * Metaio `data.info.account_id` → openclaw-lumii account JSON field `applicationId` (plugin id for workspace/app).
+ * Distinct from `uid` (user). Same envelope for password login and QR status JSON.
+ */
+export function extractApplicationIdFromMetaioEnvelope(json: unknown): string | null {
+    if (!json || typeof json !== 'object') return null;
+    const data = (json as Record<string, unknown>).data;
+    if (!data || typeof data !== 'object' || data === null) return null;
+    const info = (data as Record<string, unknown>).info;
+    if (!info || typeof info !== 'object' || info === null) return null;
+    const i = info as Record<string, unknown>;
+    return normalizeMetaioUid(i.account_id ?? i.accountId);
+}
+
 /** Display name from login or QR status JSON (`data.username`, `data.info.username`, etc.). */
 export function extractMetaioDisplayNameFromEnvelope(json: unknown): string | null {
     if (!json || typeof json !== 'object') return null;
@@ -120,10 +134,13 @@ export function assertMetaioUidUniqueForAccount(metaioUid: string, forAccountId:
             const raw = readFileSync(p, 'utf-8');
             const j = JSON.parse(raw) as unknown;
             if (!j || typeof j !== 'object') continue;
-            const existing = normalizeMetaioUid((j as Record<string, unknown>).userId);
+            const rec = j as Record<string, unknown>;
+            /** When userId is omitted, Metaio uid matches filename/accountId (see saveLumiiAccountFile). */
+            const existing =
+                normalizeMetaioUid(rec.userId) ?? normalizeMetaioUid(rec.accountId);
             if (existing && existing === uid) {
                 throw new Error(
-                    `This Metaio account (uid ${uid}) is already added as Lumii account "${accountId}". Remove or edit that account instead.`,
+                    `This Lumii account (uid ${uid}) is already linked as "${accountId}". Remove or edit that account instead.`,
                 );
             }
         } catch (e) {

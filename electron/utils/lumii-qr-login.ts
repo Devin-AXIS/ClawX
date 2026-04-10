@@ -1,5 +1,5 @@
 /**
- * Lumii (openclaw-lumii) QR login for the Channels UI — Metaio only (no standalone Lumii HTTP product API).
+ * Lumii (openclaw-lumii) QR login for the Channels UI.
  * Paths/env align with openclaw-lumii-plugin `src/auth/metaio-auth.ts` + `metaio-config.ts`.
  */
 import { randomUUID } from 'node:crypto';
@@ -11,7 +11,18 @@ import type { BrowserWindow } from 'electron';
 import type { HostEventBus } from '../api/event-bus';
 import { buildQrChannelEventName, toUiChannelType } from './channel-alias';
 import { logger } from './logger';
-import { assertMetaioUidUniqueForAccount, extractMetaioDisplayNameFromEnvelope } from './lumii-metaio-uid';
+import {
+    assertMetaioUidUniqueForAccount,
+    extractApplicationIdFromMetaioEnvelope,
+    extractMetaioDisplayNameFromEnvelope,
+} from './lumii-metaio-uid';
+import {
+    envOrFile,
+    mergeMetaioBridgeHeaders,
+    metaioQrStartPath,
+    metaioQrStatusPathTemplate,
+    resolveMetaioBaseUrl,
+} from './lumii-metaio-config';
 import { proxyAwareFetch } from './proxy-fetch';
 
 const LOG_PREFIX = '[openclaw-lumii][qr]';
@@ -52,32 +63,10 @@ function readLumiiDevConfigFile(): Record<string, string> | null {
     }
 }
 
-function envOrFile(envKey: string, dev: Record<string, string> | null): string {
-    const e = process.env[envKey]?.trim();
-    if (e) return e;
-    return dev?.[envKey]?.trim() ?? '';
-}
-
-function flagEnabled(envKey: string, dev: Record<string, string> | null): boolean {
-    return process.env[envKey] === '1' || dev?.[envKey] === '1';
-}
-
 function maskSessionKey(key: string): string {
     const t = key.trim();
     if (t.length <= 10) return `${t.slice(0, 4)}…`;
     return `${t.slice(0, 8)}…`;
-}
-
-function resolveMetaioBaseUrl(dev: Record<string, string> | null): string {
-    const DEFAULT_METAIO_BASE = 'https://server.metaio.cc';
-    const explicit = envOrFile('METAIO_BASE_URL', dev)?.trim();
-    if (explicit) return explicit.replace(/\/$/, '');
-    const ossFromApi = envOrFile('METAIO_OSS_FROM_API', dev)?.trim();
-    if (ossFromApi && /^https?:\/\//i.test(ossFromApi)) return ossFromApi.replace(/\/$/, '');
-    if (ossFromApi === '1' || flagEnabled('METAIO_OSS_FROM_API', dev)) return DEFAULT_METAIO_BASE;
-    if (flagEnabled('METAIO_AUTH', dev)) return DEFAULT_METAIO_BASE;
-    /** QR flow from the app implies Metaio; use public default when env/dev-config omitted (override with METAIO_BASE_URL). */
-    return DEFAULT_METAIO_BASE;
 }
 
 function emitQrEvent(
@@ -148,7 +137,7 @@ function assertMetaioEnvelope(body: unknown): void {
     const ok = code === 200 || code === '200' || code === 0 || code === '0';
     if (ok) return;
     const msg = typeof r.msg === 'string' ? r.msg : typeof r.message === 'string' ? r.message : JSON.stringify(code);
-    throw new Error(`Metaio API: ${msg}`);
+    throw new Error(`Lumii API: ${msg}`);
 }
 
 function extractTokenFromJson(body: unknown): string | null {
@@ -163,8 +152,8 @@ function extractTokenFromJson(body: unknown): string | null {
 }
 
 /**
- * QR image URL or raw payload from Metaio JSON (session POST or GET status), aligned with openclaw-lumii-plugin Metaio helpers.
- * Status often returns the scannable URL only on `/api/auth/qrcode/status`.
+ * QR image URL or raw payload from login JSON (session POST or GET status), aligned with openclaw-lumii-plugin helpers.
+ * Status often returns the scannable URL only on GET …/qrcode/status（路径可配 METAIO_QR_STATUS_PATH）。
  */
 function extractMetaioQrcodeUrl(root: Record<string, unknown>, data: Record<string, unknown> | null): string {
     const src = data ?? root;
@@ -187,35 +176,38 @@ function extractMetaioQrcodeUrl(root: Record<string, unknown>, data: Record<stri
 
 async function metaioStartQr(dev: Record<string, string> | null): Promise<{ sessionKey: string; qrcodeUrl: string; message?: string }> {
     const base = resolveMetaioBaseUrl(dev);
+    if (!base) {
+        throw new Error('METAIO_AUTH=0 或未配置 METAIO_BASE_URL，无法创建 Lumii 扫码会话。');
+    }
 
-    const path = envOrFile('METAIO_QR_START_PATH', dev)?.trim() || '/api/auth/qrcode/session';
+    const path = metaioQrStartPath(dev);
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
 
-    /** Metaio expects a client-generated id for this QR round-trip; server may echo or override in JSON. */
+    /** Server expects a client-generated id for this QR round-trip; may echo or override in JSON. */
     const sessionKeyClient = randomUUID();
     const postBody = JSON.stringify({ sessionKey: sessionKeyClient });
-    logger.info(`${LOG_PREFIX} Metaio POST (create QR session)`, {
+    logger.info(`${LOG_PREFIX} Lumii POST (create QR session)`, {
         url,
         sessionKey: maskSessionKey(sessionKeyClient),
     });
     const res = await proxyAwareFetch(url, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: mergeMetaioBridgeHeaders(dev, { 'Content-Type': 'application/json' }),
         body: postBody,
     });
     const text = await res.text();
-    logger.info(`${LOG_PREFIX} Metaio POST response`, { status: res.status, ok: res.ok });
+    logger.info(`${LOG_PREFIX} Lumii POST response`, { status: res.status, ok: res.ok });
     if (!res.ok) {
-        throw new Error(`Metaio QR start ${res.status}: ${text.slice(0, 400)}`);
+        throw new Error(`Lumii QR start ${res.status}: ${text.slice(0, 400)}`);
     }
     let json: unknown;
     try {
         json = JSON.parse(text) as unknown;
     } catch {
-        throw new Error('Metaio QR start: response is not JSON.');
+        throw new Error('Lumii QR start: response is not JSON.');
     }
     assertMetaioEnvelope(json);
-    if (!json || typeof json !== 'object') throw new Error('Metaio QR start: invalid JSON root.');
+    if (!json || typeof json !== 'object') throw new Error('Lumii QR start: invalid JSON root.');
     const root = json as Record<string, unknown>;
     const data =
         root.data && typeof root.data === 'object' && root.data !== null
@@ -256,6 +248,8 @@ async function metaioPollQrOnce(
     token?: string;
     userId?: string;
     accountId?: string;
+    /** Metaio `data.info.account_id` → plugin `applicationId`. */
+    applicationId?: string;
     /** From `username` / `data.username` etc., for UI display name. */
     displayName?: string;
     message?: string;
@@ -263,29 +257,32 @@ async function metaioPollQrOnce(
     qrcodeUrl?: string;
 }> {
     const base = resolveMetaioBaseUrl(dev);
-    const pathTemplate =
-        envOrFile('METAIO_QR_STATUS_PATH', dev)?.trim() || '/api/auth/qrcode/status?sessionKey={sessionKey}';
+    if (!base) {
+        return { connected: false, message: 'Lumii QR status: METAIO_BASE_URL 未配置或 METAIO_AUTH=0。' };
+    }
+    const pathTemplate = metaioQrStatusPathTemplate(dev);
+    const paramName = envOrFile('METAIO_QR_STATUS_SESSION_PARAM', dev)?.trim() || 'sessionKey';
     const path = pathTemplate.includes('{sessionKey}')
-        ? pathTemplate.replace('{sessionKey}', encodeURIComponent(sessionKey))
-        : `${pathTemplate}${pathTemplate.includes('?') ? '&' : '?'}sessionKey=${encodeURIComponent(sessionKey)}`;
+        ? pathTemplate.replaceAll('{sessionKey}', encodeURIComponent(sessionKey))
+        : `${pathTemplate}${pathTemplate.includes('?') ? '&' : '?'}${paramName}=${encodeURIComponent(sessionKey)}`;
     const url = `${base}${path.startsWith('/') ? path : `/${path}`}`;
 
-    logger.debug(`${LOG_PREFIX} Metaio GET (poll status)`, { url, sessionKey: maskSessionKey(sessionKey) });
+    logger.debug(`${LOG_PREFIX} Lumii GET (poll status)`, { url, sessionKey: maskSessionKey(sessionKey) });
     const res = await proxyAwareFetch(url, {
         method: 'GET',
-        headers: { Accept: 'application/json' },
+        headers: mergeMetaioBridgeHeaders(dev, { Accept: 'application/json' }),
         signal,
     });
     const text = await res.text();
     if (!res.ok) {
-        logger.warn(`${LOG_PREFIX} Metaio GET non-OK`, { status: res.status, preview: text.slice(0, 200) });
-        return { connected: false, message: `Metaio QR status ${res.status}: ${text.slice(0, 200)}` };
+        logger.warn(`${LOG_PREFIX} Lumii GET non-OK`, { status: res.status, preview: text.slice(0, 200) });
+        return { connected: false, message: `Lumii QR status ${res.status}: ${text.slice(0, 200)}` };
     }
     let json: Record<string, unknown>;
     try {
         json = JSON.parse(text) as Record<string, unknown>;
     } catch {
-        return { connected: false, message: 'Metaio QR status: invalid JSON.' };
+        return { connected: false, message: 'Lumii QR status: invalid JSON.' };
     }
     try {
         assertMetaioEnvelope(json);
@@ -301,23 +298,26 @@ async function metaioPollQrOnce(
     const connectedFlag = json.connected === true || data?.connected === true;
     const token = extractTokenFromJson(json);
     const displayFromPoll = extractMetaioDisplayNameFromEnvelope(json) ?? undefined;
+    const applicationIdFromMetaio = extractApplicationIdFromMetaioEnvelope(json) ?? undefined;
     if (token && (status === 'confirmed' || status === 'done' || status === 'success' || connectedFlag)) {
-        logger.info(`${LOG_PREFIX} Metaio GET: login complete`, { status: status || '(empty)', connectedFlag });
+        logger.info(`${LOG_PREFIX} Lumii GET: login complete`, { status: status || '(empty)', connectedFlag });
         return {
             connected: true,
             token,
             userId: extractUserId(json),
             accountId: extractAccountId(json),
+            ...(applicationIdFromMetaio ? { applicationId: applicationIdFromMetaio } : {}),
             ...(displayFromPoll ? { displayName: displayFromPoll } : {}),
         };
     }
     if (token && !status) {
-        logger.info(`${LOG_PREFIX} Metaio GET: login complete (token, no status field)`);
+        logger.info(`${LOG_PREFIX} Lumii GET: login complete (token, no status field)`);
         return {
             connected: true,
             token,
             userId: extractUserId(json),
             accountId: extractAccountId(json),
+            ...(applicationIdFromMetaio ? { applicationId: applicationIdFromMetaio } : {}),
             ...(displayFromPoll ? { displayName: displayFromPoll } : {}),
         };
     }
@@ -344,7 +344,7 @@ export async function saveLumiiAccountFile(
     accountId: string,
     token: string,
     metaioBaseUrl: string,
-    extras?: { userId?: string },
+    extras?: { userId?: string; applicationId?: string },
 ): Promise<void> {
     const stateDir = join(resolveOpenclawStateDir(), 'openclaw-lumii');
     const accountsDir = join(stateDir, 'accounts');
@@ -352,8 +352,9 @@ export async function saveLumiiAccountFile(
     await mkdir(accountsDir, { recursive: true });
     const id = accountId.trim() || 'default';
     const filePath = join(accountsDir, `${id}.json`);
-    if (extras?.userId?.trim()) {
-        assertMetaioUidUniqueForAccount(extras.userId.trim(), id);
+    const extraUid = extras?.userId?.trim();
+    if (extraUid) {
+        assertMetaioUidUniqueForAccount(extraUid, id);
     }
     const metaioRoot = metaioBaseUrl.replace(/\/$/, '');
     const payload: Record<string, unknown> = {
@@ -365,8 +366,14 @@ export async function saveLumiiAccountFile(
         baseUrl: metaioRoot,
         savedAt: new Date().toISOString(),
     };
-    if (extras?.userId?.trim()) {
-        payload.userId = extras.userId.trim();
+    /** Plugin expects Metaio user uid (`data.info.uid`); always persist when known. */
+    if (extraUid) {
+        payload.userId = extraUid;
+    }
+    const appId = extras?.applicationId?.trim();
+    if (appId) {
+        /** Metaio `data.info.account_id` — openclaw-lumii plugin field `applicationId`. */
+        payload.applicationId = appId;
     }
     logger.info(`${LOG_PREFIX} write account file`, { path: filePath, accountId: id });
     await writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf-8');
@@ -394,7 +401,7 @@ export async function saveLumiiAccountFile(
 }
 
 /**
- * Stops Metaio `auth/qrcode/status` polling for any in-flight Lumii QR session.
+ * Stops `auth/qrcode/status` polling for any in-flight Lumii QR session.
  * Aborts every active controller so a single cancel call always matches the running poll
  * even if start/cancel account keys drifted in the UI.
  */
@@ -413,7 +420,7 @@ export interface LumiiQrStartContext {
 }
 
 /**
- * Metaio QR session + poll until token; writes ~/.openclaw/openclaw-lumii/accounts.
+ * Lumii QR session + poll until token; writes ~/.openclaw/openclaw-lumii/accounts.
  */
 export async function startOpenclawLumiiQrLogin(ctx: LumiiQrStartContext, accountId?: string): Promise<void> {
     const dev = readLumiiDevConfigFile();
@@ -425,7 +432,11 @@ export async function startOpenclawLumiiQrLogin(ctx: LumiiQrStartContext, accoun
     });
 
     const base = resolveMetaioBaseUrl(dev);
-    logger.info(`${LOG_PREFIX} Metaio base URL`, { base });
+    if (!base) {
+        emitLumiiChannelEvent(ctx.eventBus, ctx.mainWindow, 'error', 'METAIO_AUTH=0 或未配置 METAIO_BASE_URL，无法使用 Lumii 扫码。');
+        return;
+    }
+    logger.info(`${LOG_PREFIX} Lumii base URL`, { base });
 
     const start = await metaioStartQr(dev);
     let lastQrEmitted = '';
@@ -472,14 +483,17 @@ export async function startOpenclawLumiiQrLogin(ctx: LumiiQrStartContext, accoun
                     emitQrToUiIfNew(r.qrcodeUrl, 'status');
                 }
                 if (r.connected && r.token) {
-                    // Prefer the account the user is configuring in ClawX; Metaio ids are fallback (matches expected openclaw.json account).
+                    // Prefer the account the user is configuring in ClawX; server ids are fallback (matches expected openclaw.json account).
                     const aid =
                         accountId?.trim() ||
                         r.accountId?.trim() ||
                         r.userId?.trim() ||
                         'default';
                     logger.info(`${LOG_PREFIX} poll finished: success`, { accountId: aid, pollRound });
-                    await saveLumiiAccountFile(aid, r.token, base, { userId: r.userId });
+                    await saveLumiiAccountFile(aid, r.token, base, {
+                        userId: r.userId,
+                        ...(r.applicationId ? { applicationId: r.applicationId } : {}),
+                    });
                     logger.info(`${LOG_PREFIX} emit success to UI`, { accountId: aid, hasDisplayName: Boolean(r.displayName) });
                     emitLumiiChannelEvent(ctx.eventBus, ctx.mainWindow, 'success', {
                         accountId: aid,
@@ -495,7 +509,7 @@ export async function startOpenclawLumiiQrLogin(ctx: LumiiQrStartContext, accoun
                 await new Promise((resolve) => setTimeout(resolve, POLL_MS));
             }
             logger.warn(`${LOG_PREFIX} poll finished: timeout`, { pollRound });
-            emitLumiiChannelEvent(ctx.eventBus, ctx.mainWindow, 'error', 'Timed out waiting for Metaio QR.');
+            emitLumiiChannelEvent(ctx.eventBus, ctx.mainWindow, 'error', 'Timed out waiting for Lumii QR.');
         } catch (e) {
             if (ac.signal.aborted) {
                 logger.info(`${LOG_PREFIX} poll aborted (cancel)`);

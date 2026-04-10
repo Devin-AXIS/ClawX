@@ -133,7 +133,7 @@ export const CHANNEL_NAMES: Record<ChannelType, string> = {
   msteams: 'Microsoft Teams',
   googlechat: 'Google Chat',
   mattermost: 'Mattermost',
-  'openclaw-lumii': 'Lumii (Metaio)',
+  'openclaw-lumii': 'Lumii',
   qqbot: 'QQ Bot',
 };
 

@@ -157,6 +157,20 @@ function getMessageText(content: unknown): string {
   return '';
 }
 
+/**
+ * True when `incoming` would repeat the same user-visible assistant body as `last`
+ * (text blocks only — ignores thinking/tool blocks). Used to avoid double bubbles when
+ * a tool_result snapshot already materialized the streaming assistant and the gateway
+ * sends a second `final` with the same answer text.
+ */
+function isDuplicateAssistantFinalBody(last: RawMessage, incoming: RawMessage): boolean {
+  if (last.role !== 'assistant') return false;
+  const a = getMessageText(last.content).trim();
+  const b = getMessageText(incoming.content).trim();
+  if (!a || !b || a.length < 2) return false;
+  return a === b;
+}
+
 /** Extract media file refs from [media attached: <path> (<mime>) | ...] patterns */
 function extractMediaRefs(text: string): Array<{ filePath: string; mimeType: string }> {
   const refs: Array<{ filePath: string; mimeType: string }> = [];
@@ -1885,6 +1899,41 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 sending: hasOutput ? false : s.sending,
                 activeRunId: hasOutput ? null : s.activeRunId,
                 pendingFinal: hasOutput ? false : true,
+                streamingTools,
+                ...clearPendingImages,
+              };
+            }
+
+            const last = s.messages[s.messages.length - 1];
+            if (
+              !toolOnly
+              && hasOutput
+              && last?.role === 'assistant'
+              && isDuplicateAssistantFinalBody(last, finalMsg)
+            ) {
+              const baseFiles = last._attachedFiles || [];
+              const extra = msgWithImages._attachedFiles || [];
+              const seen = new Set(
+                baseFiles.map((f) => `${f.filePath || ''}|${f.fileName || ''}`),
+              );
+              const add = extra.filter((f) => {
+                const k = `${f.filePath || ''}|${f.fileName || ''}`;
+                if (!k.trim() || seen.has(k)) return false;
+                seen.add(k);
+                return true;
+              });
+              return {
+                messages: add.length > 0
+                  ? [
+                    ...s.messages.slice(0, -1),
+                    { ...last, _attachedFiles: [...baseFiles, ...add] },
+                  ]
+                  : s.messages,
+                streamingText: '',
+                streamingMessage: null,
+                sending: false,
+                activeRunId: null,
+                pendingFinal: false,
                 streamingTools,
                 ...clearPendingImages,
               };

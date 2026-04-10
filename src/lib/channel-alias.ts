@@ -22,7 +22,7 @@ export function isWechatChannelType(channelType: string | null | undefined): boo
 }
 
 /**
- * Account id is assigned by the integration (WeChat device binding, Lumii Metaio uid from login/QR),
+ * Account id is assigned by the integration (WeChat device binding, Lumii uid from login/QR),
  * not typed in the add-account form.
  */
 export function usesPluginManagedQrAccounts(channelType: string | null | undefined): boolean {
