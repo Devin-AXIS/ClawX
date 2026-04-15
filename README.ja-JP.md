@@ -348,6 +348,7 @@ pnpm run comms:compare    # リプレイ指標をベースライン閾値と比�
 # ビルド＆パッケージ
 pnpm run build:vite       # フロントエンドのみビルド
 pnpm build                # フルプロダクションビルド（パッケージアセット含む）
+                          # macOS: .zip と .app（DMG は無効。 .dmg が必要な場合は macOS 13+ または CI で electron-builder.yml を参照）
 pnpm package              # 現在のプラットフォーム向けにパッケージ化（同梱プリインストールスキルを含む）
 pnpm package:mac          # macOS向けにパッケージ化
 pnpm package:win          # Windows向けにパッケージ化

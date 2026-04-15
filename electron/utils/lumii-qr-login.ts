@@ -15,6 +15,10 @@ import {
     assertMetaioUidUniqueForAccount,
     extractApplicationIdFromMetaioEnvelope,
     extractMetaioDisplayNameFromEnvelope,
+    extractMetaioLoginUsernameFromEnvelope,
+    extractMetaioUidFromLoginResponse,
+    findLumiiAccountIdByMetaioUid,
+    tryExtractMetaioUidFromBearerToken,
 } from './lumii-metaio-uid';
 import {
     envOrFile,
@@ -107,8 +111,17 @@ function uidFromDataInfo(data: Record<string, unknown> | null): string | undefin
     return undefined;
 }
 
+/** HTTP body first; if uid missing, parse JWT payload (common when bridge omits `data.info.uid`). */
+function resolveUserIdForLumiiQrPoll(json: unknown, token: string): string | undefined {
+    const fromJson = extractUserId(json);
+    if (fromJson?.trim()) return fromJson.trim();
+    return tryExtractMetaioUidFromBearerToken(token) ?? undefined;
+}
+
 function extractUserId(body: unknown): string | undefined {
     if (!body || typeof body !== 'object') return undefined;
+    const fromLogin = extractMetaioUidFromLoginResponse(body);
+    if (fromLogin) return fromLogin;
     const o = body as Record<string, unknown>;
     const data = o.data && typeof o.data === 'object' ? (o.data as Record<string, unknown>) : null;
     const fromInfo = uidFromDataInfo(data);
@@ -252,6 +265,8 @@ async function metaioPollQrOnce(
     applicationId?: string;
     /** From `username` / `data.username` etc., for UI display name. */
     displayName?: string;
+    /** Phone / login id for `metaioUsername` in openclaw.json (METAIO_USERNAME). */
+    metaioUsername?: string;
     message?: string;
     /** Present when status payload includes a QR URL/image (plugin shows this on each poll). */
     qrcodeUrl?: string;
@@ -298,16 +313,18 @@ async function metaioPollQrOnce(
     const connectedFlag = json.connected === true || data?.connected === true;
     const token = extractTokenFromJson(json);
     const displayFromPoll = extractMetaioDisplayNameFromEnvelope(json) ?? undefined;
+    const loginUsernameFromPoll = extractMetaioLoginUsernameFromEnvelope(json) ?? undefined;
     const applicationIdFromMetaio = extractApplicationIdFromMetaioEnvelope(json) ?? undefined;
     if (token && (status === 'confirmed' || status === 'done' || status === 'success' || connectedFlag)) {
         logger.info(`${LOG_PREFIX} Lumii GET: login complete`, { status: status || '(empty)', connectedFlag });
         return {
             connected: true,
             token,
-            userId: extractUserId(json),
+            userId: resolveUserIdForLumiiQrPoll(json, token),
             accountId: extractAccountId(json),
             ...(applicationIdFromMetaio ? { applicationId: applicationIdFromMetaio } : {}),
             ...(displayFromPoll ? { displayName: displayFromPoll } : {}),
+            ...(loginUsernameFromPoll ? { metaioUsername: loginUsernameFromPoll } : {}),
         };
     }
     if (token && !status) {
@@ -315,10 +332,11 @@ async function metaioPollQrOnce(
         return {
             connected: true,
             token,
-            userId: extractUserId(json),
+            userId: resolveUserIdForLumiiQrPoll(json, token),
             accountId: extractAccountId(json),
             ...(applicationIdFromMetaio ? { applicationId: applicationIdFromMetaio } : {}),
             ...(displayFromPoll ? { displayName: displayFromPoll } : {}),
+            ...(loginUsernameFromPoll ? { metaioUsername: loginUsernameFromPoll } : {}),
         };
     }
     if (status === 'expired' || status === 'failed') {
@@ -353,8 +371,11 @@ export async function saveLumiiAccountFile(
     const id = accountId.trim() || 'default';
     const filePath = join(accountsDir, `${id}.json`);
     const extraUid = extras?.userId?.trim();
-    if (extraUid) {
-        assertMetaioUidUniqueForAccount(extraUid, id);
+    /** Password flow uses numeric Metaio uid as account id; persist uid even if bridge omitted `userId` in extras. */
+    const inferredUid =
+        extraUid || (/^\d{3,24}$/.test(id) ? id : undefined);
+    if (inferredUid) {
+        assertMetaioUidUniqueForAccount(inferredUid, id);
     }
     const metaioRoot = metaioBaseUrl.replace(/\/$/, '');
     const payload: Record<string, unknown> = {
@@ -367,8 +388,8 @@ export async function saveLumiiAccountFile(
         savedAt: new Date().toISOString(),
     };
     /** Plugin expects Metaio user uid (`data.info.uid`); always persist when known. */
-    if (extraUid) {
-        payload.userId = extraUid;
+    if (inferredUid) {
+        payload.userId = inferredUid;
     }
     const appId = extras?.applicationId?.trim();
     if (appId) {
@@ -483,21 +504,35 @@ export async function startOpenclawLumiiQrLogin(ctx: LumiiQrStartContext, accoun
                     emitQrToUiIfNew(r.qrcodeUrl, 'status');
                 }
                 if (r.connected && r.token) {
-                    // Prefer the account the user is configuring in ClawX; server ids are fallback (matches expected openclaw.json account).
-                    const aid =
-                        accountId?.trim() ||
-                        r.accountId?.trim() ||
-                        r.userId?.trim() ||
-                        'default';
+                    /**
+                     * Password login saves `~/.openclaw/openclaw-lumii/accounts/<metaioUid>.json`.
+                     * QR must reuse that file when the same user signs in again — do not prefer server
+                     * `accountId` over `userId` when no explicit ClawX account was requested, or we add a duplicate.
+                     */
+                    const requested = accountId?.trim();
+                    const metaioUid = r.userId?.trim();
+                    let aid: string;
+                    if (requested) {
+                        aid = requested;
+                    } else if (metaioUid) {
+                        aid = findLumiiAccountIdByMetaioUid(metaioUid) ?? metaioUid;
+                    } else {
+                        aid = r.accountId?.trim() || 'default';
+                    }
                     logger.info(`${LOG_PREFIX} poll finished: success`, { accountId: aid, pollRound });
                     await saveLumiiAccountFile(aid, r.token, base, {
                         userId: r.userId,
                         ...(r.applicationId ? { applicationId: r.applicationId } : {}),
                     });
-                    logger.info(`${LOG_PREFIX} emit success to UI`, { accountId: aid, hasDisplayName: Boolean(r.displayName) });
+                    logger.info(`${LOG_PREFIX} emit success to UI`, {
+                        accountId: aid,
+                        hasDisplayName: Boolean(r.displayName),
+                        hasMetaioUsername: Boolean(r.metaioUsername),
+                    });
                     emitLumiiChannelEvent(ctx.eventBus, ctx.mainWindow, 'success', {
                         accountId: aid,
                         ...(r.displayName?.trim() ? { metaioDisplayName: r.displayName.trim() } : {}),
+                        ...(r.metaioUsername?.trim() ? { metaioUsername: r.metaioUsername.trim() } : {}),
                     });
                     return;
                 }

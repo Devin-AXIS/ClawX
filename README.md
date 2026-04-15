@@ -352,6 +352,7 @@ pnpm run comms:compare    # Compare replay metrics against baseline thresholds
 # Build & Package
 pnpm run build:vite       # Build frontend only
 pnpm build                # Full production build (with packaging assets)
+                          # macOS: ships .zip + .app (DMG disabled; use macOS 13+ CI if you need a .dmg — see electron-builder.yml)
 pnpm package              # Package for current platform (includes bundled preinstalled skills)
 pnpm package:mac          # Package for macOS
 pnpm package:win          # Package for Windows

@@ -922,8 +922,14 @@ export function toUserMessage(error: unknown): string {
       return 'Too many requests. Please wait and try again.';
     case 'PERMISSION':
       return 'Permission denied. Check your configuration and retry.';
-    case 'CHANNEL_UNAVAILABLE':
+    case 'CHANNEL_UNAVAILABLE': {
+      const m = appError.message;
+      /** Preload whitelist / main handler — show real message; generic text hides "Invalid IPC channel". */
+      if (/invalid ipc channel|no handler registered/i.test(m)) {
+        return m;
+      }
       return 'Service channel unavailable. Retry after restarting the app or gateway.';
+    }
     case 'NETWORK':
       return 'Network error. Please verify connectivity and retry.';
     case 'CONFIG':

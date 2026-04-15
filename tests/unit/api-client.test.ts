@@ -73,8 +73,13 @@ describe('api-client', () => {
     expect(msg).toContain('Authentication failed');
   });
 
-  it('returns user-facing message for channel unavailable error', () => {
-    const msg = toUserMessage(new AppError('CHANNEL_UNAVAILABLE', 'Invalid IPC channel'));
+  it('preserves IPC whitelist errors for channel unavailable', () => {
+    const msg = toUserMessage(new AppError('CHANNEL_UNAVAILABLE', 'Invalid IPC channel: foo'));
+    expect(msg).toContain('Invalid IPC channel');
+  });
+
+  it('returns generic message for channel unavailable when not IPC whitelist', () => {
+    const msg = toUserMessage(new AppError('CHANNEL_UNAVAILABLE', 'Backend offline'));
     expect(msg).toContain('Service channel unavailable');
   });
 

@@ -32,7 +32,7 @@ import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { SUPPORTED_LANGUAGES } from '@/i18n';
 import { toast } from 'sonner';
-import { invokeIpc } from '@/lib/api-client';
+import { invokeIpc, toUserMessage } from '@/lib/api-client';
 import { hostApiFetch } from '@/lib/host-api';
 import { subscribeHostEvent } from '@/lib/host-events';
 interface SetupStep {
@@ -410,11 +410,20 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
         isBuilt: boolean;
         dir: string;
         version?: string;
+        diagnostics?: string;
       };
 
       setOpenclawDir(openclawStatus.dir);
 
-      if (!openclawStatus.packageExists) {
+      if (openclawStatus.diagnostics) {
+        setChecks((prev) => ({
+          ...prev,
+          openclaw: {
+            status: 'error',
+            message: openclawStatus.diagnostics ?? 'OpenClaw status unavailable',
+          },
+        }));
+      } else if (!openclawStatus.packageExists) {
         setChecks((prev) => ({
           ...prev,
           openclaw: {
@@ -443,7 +452,7 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
     } catch (error) {
       setChecks((prev) => ({
         ...prev,
-        openclaw: { status: 'error', message: `Check failed: ${error}` },
+        openclaw: { status: 'error', message: toUserMessage(error) },
       }));
     }
 
@@ -553,7 +562,14 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
       setLogContent(logs.content);
       setShowLogs(true);
     } catch {
-      setLogContent('(Failed to load logs)');
+      try {
+        const text = await invokeIpc<string>('log:readFile', 100);
+        setLogContent(typeof text === 'string' && text.trim() ? text : '(Log file empty or unreadable)');
+      } catch (ipcErr) {
+        setLogContent(
+          `(Failed to load logs: ${ipcErr instanceof Error ? ipcErr.message : String(ipcErr)}. Open the log folder instead.)`,
+        );
+      }
       setShowLogs(true);
     }
   };
@@ -569,7 +585,8 @@ function RuntimeContent({ onStatusChange }: RuntimeContentProps) {
     }
   };
 
-  const ERROR_TRUNCATE_LEN = 30;
+  /** Keep short for layout; IPC errors are often long — full text in tooltip. */
+  const ERROR_TRUNCATE_LEN = 48;
 
   const renderStatus = (status: 'checking' | 'success' | 'error', message: string) => {
     if (status === 'checking') {

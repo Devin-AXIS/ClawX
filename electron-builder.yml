@@ -70,11 +70,9 @@ mac:
       to: cli/
   category: public.app-category.productivity
   icon: resources/icons/icon.icns
+  # Zip-only: dmg-builder 1.x bundles Python 3.14 which requires `_mkfifoat` (macOS 13+).
+  # On macOS 12, DMG creation fails at runtime; use zip / copy .app, or build DMG on newer macOS/CI.
   target:
-    - target: dmg
-      arch:
-        - x64
-        - arm64
     - target: zip
       arch:
         - x64

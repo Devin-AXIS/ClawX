@@ -1412,11 +1412,23 @@ function registerOpenClawHandlers(gatewayManager: GatewayManager): void {
     gatewayManager.debouncedReload();
   };
 
-  // Get OpenClaw package status
+  // Get OpenClaw package status (never throw — renderer Setup depends on a plain object)
   ipcMain.handle('openclaw:status', () => {
-    const status = getOpenClawStatus();
-    logger.info('openclaw:status IPC called', status);
-    return status;
+    try {
+      const status = getOpenClawStatus();
+      logger.info('openclaw:status IPC called', status);
+      return status;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      logger.error('openclaw:status IPC failed', e);
+      return {
+        packageExists: false,
+        isBuilt: false,
+        entryPath: '',
+        dir: '',
+        diagnostics: msg,
+      };
+    }
   });
 
   // Check if OpenClaw is ready (package present)

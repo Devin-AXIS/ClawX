@@ -352,6 +352,7 @@ pnpm run comms:compare    # 将回放指标与基线阈值对比
 # 构建与打包
 pnpm run build:vite       # 仅构建前端
 pnpm build                # 完整生产构建（含打包资源）
+                          # macOS：产出 .zip 与 .app（已关闭 DMG；若需 .dmg 请在 macOS 13+ 或 CI 上构建，见 electron-builder.yml）
 pnpm package              # 为当前平台打包（包含预装技能资源）
 pnpm package:mac          # 为 macOS 打包
 pnpm package:win          # 为 Windows 打包

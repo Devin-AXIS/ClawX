@@ -16,7 +16,9 @@ import { saveLumiiAccountFile } from './lumii-qr-login';
 import {
     assertMetaioUidUniqueForAccount,
     clearOpenclawLumiiPluginAccountFiles,
+    pruneDuplicateLumiiAccountsInOpenClaw,
     removeLumiiAccountState,
+    resolveLumiiAccountIdForChannelSave,
 } from './lumii-metaio-uid';
 import { withConfigLock } from './config-mutex';
 import {
@@ -746,7 +748,6 @@ export async function saveChannelConfig(
     return withConfigLock(async () => {
         const resolvedChannelType = resolveStoredChannelType(channelType);
         const currentConfig = await readOpenClawConfig();
-        const resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
 
         cleanupLegacyBuiltInChannelPluginRegistration(currentConfig, resolvedChannelType);
         await ensurePluginAllowlist(currentConfig, resolvedChannelType);
@@ -778,6 +779,25 @@ export async function saveChannelConfig(
 
         const channelSection = currentConfig.channels[resolvedChannelType];
         migrateLegacyChannelConfigToAccounts(channelSection, DEFAULT_ACCOUNT_ID);
+
+        let resolvedAccountId = accountId || DEFAULT_ACCOUNT_ID;
+        if (resolvedChannelType === 'openclaw-lumii') {
+            const existingOpenClawAccountIds = Object.keys(
+                (channelSection.accounts && typeof channelSection.accounts === 'object'
+                    ? channelSection.accounts
+                    : {}) as Record<string, unknown>,
+            );
+            const preferred =
+                typeof channelSection.defaultAccount === 'string' && channelSection.defaultAccount.trim()
+                    ? channelSection.defaultAccount.trim()
+                    : undefined;
+            resolvedAccountId = resolveLumiiAccountIdForChannelSave(
+                resolvedAccountId,
+                existingOpenClawAccountIds,
+                preferred,
+                DEFAULT_ACCOUNT_ID,
+            );
+        }
 
         if (resolvedChannelType === 'openclaw-lumii') {
             await ensureLumiiMetaioUidUniqueOnPasswordSave(config, resolvedAccountId);
@@ -816,6 +836,10 @@ export async function saveChannelConfig(
             ...transformedConfig,
             enabled: transformedConfig.enabled ?? true,
         };
+
+        if (resolvedChannelType === 'openclaw-lumii') {
+            pruneDuplicateLumiiAccountsInOpenClaw(accounts as Record<string, unknown>, resolvedAccountId);
+        }
 
         // Most OpenClaw channel plugins read the default account's credentials
         // from the top level of `channels.<type>` (e.g. channels.feishu.appId),

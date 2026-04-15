@@ -210,36 +210,55 @@ export interface OpenClawStatus {
   entryPath: string;
   dir: string;
   version?: string;
+  /** Set when status could not be computed (avoid throwing from IPC — Setup UI shows this). */
+  diagnostics?: string;
 }
 
 export function getOpenClawStatus(): OpenClawStatus {
-  const dir = getOpenClawDir();
-  let version: string | undefined;
-
-  // Try to read version from package.json
   try {
-    const pkgPath = join(dir, 'package.json');
-    if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
-      version = pkg.version;
+    const dir = getOpenClawDir();
+    let version: string | undefined;
+
+    // Try to read version from package.json
+    try {
+      const pkgPath = join(dir, 'package.json');
+      if (existsSync(pkgPath)) {
+        const pkg = JSON.parse(readFileSync(pkgPath, 'utf-8'));
+        version = pkg.version;
+      }
+    } catch {
+      // Ignore version read errors
     }
-  } catch {
-    // Ignore version read errors
-  }
 
-  const status: OpenClawStatus = {
-    packageExists: isOpenClawPresent(),
-    isBuilt: isOpenClawBuilt(),
-    entryPath: getOpenClawEntryPath(),
-    dir,
-    version,
-  };
+    const status: OpenClawStatus = {
+      packageExists: isOpenClawPresent(),
+      isBuilt: isOpenClawBuilt(),
+      entryPath: getOpenClawEntryPath(),
+      dir,
+      version,
+    };
 
-  try {
-    const { logger } = require('./logger') as typeof import('./logger');
-    logger.info('OpenClaw status:', status);
-  } catch {
-    // Ignore logger bootstrap issues in non-Electron contexts such as unit tests.
+    try {
+      const { logger } = require('./logger') as typeof import('./logger');
+      logger.info('OpenClaw status:', status);
+    } catch {
+      // Ignore logger bootstrap issues in non-Electron contexts such as unit tests.
+    }
+    return status;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    try {
+      const { logger } = require('./logger') as typeof import('./logger');
+      logger.error('getOpenClawStatus failed', e);
+    } catch {
+      // ignore
+    }
+    return {
+      packageExists: false,
+      isBuilt: false,
+      entryPath: '',
+      dir: '',
+      diagnostics: msg,
+    };
   }
-  return status;
 }

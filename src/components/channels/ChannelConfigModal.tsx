@@ -105,6 +105,9 @@ export function ChannelConfigModal({
   const isQrLikeFlow =
     selectedType === 'openclaw-lumii' ? lumiiQrMode : meta?.connectionType === 'qr';
   const shouldUseCredentialValidation = selectedType !== 'feishu';
+  /** Meta says `qr`, but password mode must still hit validate to obtain metaioUid for save. */
+  const lumiiPasswordUsesCredentialValidation =
+    selectedType === 'openclaw-lumii' && !lumiiQrMode;
   const usesManagedQrAccounts = usesPluginManagedQrAccounts(selectedType);
   const showAccountIdEditor = allowEditAccountId && !usesManagedQrAccounts;
   const resolvedAccountId = usesManagedQrAccounts
@@ -303,7 +306,9 @@ export function ChannelConfigModal({
     };
 
     const onSuccess = async (...args: unknown[]) => {
-      const data = args[0] as { accountId?: string; metaioDisplayName?: string } | undefined;
+      const data = args[0] as
+        | { accountId?: string; metaioDisplayName?: string; metaioUsername?: string }
+        | undefined;
       void data?.accountId;
       toast.success(translateRef.current('toast.qrConnected', { name: CHANNEL_NAMES[channelType] }));
       try {
@@ -321,6 +326,7 @@ export function ChannelConfigModal({
           /** Lumii uid from QR poll success — not configured in the form. */
           const backendAccountId = data?.accountId?.trim();
           const display = data?.metaioDisplayName?.trim();
+          const loginUser = data?.metaioUsername?.trim();
           const saveResult = await hostApiFetch<{ success?: boolean; error?: string }>('/api/channels/config', {
             method: 'POST',
             body: JSON.stringify({
@@ -329,7 +335,7 @@ export function ChannelConfigModal({
                 ...v,
                 enabled: true,
                 metaioLoginMode: 'qr',
-                metaioUsername: '',
+                metaioUsername: loginUser ?? '',
                 metaioPassword: '',
                 ...(display ? { metaioAccountDisplayName: display } : {}),
               },
@@ -468,7 +474,10 @@ export function ChannelConfigModal({
         return;
       }
 
-      if (meta.connectionType === 'token' && shouldUseCredentialValidation) {
+      if (
+        shouldUseCredentialValidation
+        && (meta.connectionType === 'token' || lumiiPasswordUsesCredentialValidation)
+      ) {
         const validationResponse = await hostApiFetch<{
           success: boolean;
           valid?: boolean;
